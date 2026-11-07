@@ -1,0 +1,9 @@
+/* Biz uses the panel's shared colors, cards and spacing. */
+.biz-onboarding { padding: 24px; margin: 16px 0; }
+.biz-onboarding p { margin: 12px 0; }
+.biz-objective { padding: 20px; margin: 12px 0; }
+.biz-kr { display: grid; gap: 8px; padding: 16px 0; border-top: 1px solid var(--line); }
+@media (max-width: 600px) {
+  .biz-objective .row { flex-wrap: wrap; gap: 12px; }
+  .biz-objective h3 { flex-basis: 100%; margin-bottom: 0; }
+}

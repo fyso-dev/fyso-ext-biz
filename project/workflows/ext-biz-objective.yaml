@@ -1,0 +1,9 @@
+description: Read objective vision, levers and open decisions from Fyso Biz
+working_dir: ${FYSO_ROOT}
+max_active_runs: 1
+params:
+  - FYSO_BIZ_OBJECTIVE: ""
+steps:
+  - id: vision
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs vision
+    output: RESULT

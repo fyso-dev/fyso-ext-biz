@@ -1,0 +1,5 @@
+id: biz
+name: {es: Fyso Biz, en: Fyso Biz}
+description: {es: Objetivos y contexto del negocio, en: Business objectives and context}
+icon: workflow
+url: /#/extensions/biz/overview

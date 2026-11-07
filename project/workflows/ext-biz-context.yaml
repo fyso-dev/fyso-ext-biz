@@ -1,0 +1,9 @@
+description: Read scoped Fyso Biz context without changing business records
+working_dir: ${FYSO_ROOT}
+max_active_runs: 1
+params:
+  - FYSO_BIZ_DEPARTMENT: ""
+steps:
+  - id: context
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs
+    output: RESULT

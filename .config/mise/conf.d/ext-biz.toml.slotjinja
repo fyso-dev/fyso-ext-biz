@@ -1,0 +1,8 @@
+[env]
+FYSO_BIZ_URL = "{{ biz_url }}"
+[tasks."biz:check"]
+description = "Check Fyso Biz authentication and available MCP tools"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs check"
+[tasks."biz:context"]
+description = "Read scoped Fyso Biz context"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs"

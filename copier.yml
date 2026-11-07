@@ -1,0 +1,39 @@
+_min_copier_version: "9.19.1"
+_answers_file: .copier-answers.ext-biz.yml
+_templates_suffix: .slotjinja
+_external_data:
+  framework_api: framework/panel/extension-api.json
+framework_api:
+  type: int
+  default: "{{ _external_data.framework_api.version }}"
+  choices: [1]
+  help: Required framework panel extension API version
+  validator: >-
+    {% if framework_api != 1 or (_external_data.framework_api.version is defined and _external_data.framework_api.version != 1) %}
+    This extension requires Fyso panel extension API v1. Upgrade the framework first.
+    {% endif %}
+biz_url:
+  type: str
+  default: https://fyso.biz
+  help: Fyso Biz organization origin (HTTPS)
+  validator: >-
+    {% if not (biz_url | regex_search('^https://[a-zA-Z0-9.-]+(:[0-9]+)?$')) %}
+    Use an HTTPS origin without a path or credentials.
+    {% endif %}
+_exclude:
+  - copier.yml
+  - README.md
+  - panel-src
+  - vite.config.mjs
+  - tsconfig.json
+  - .git
+  - .github
+  - .gitignore
+  - mise.toml
+  - package.json
+  - scripts
+  - tests
+  - docs
+  - artifacts
+  - .data
+  - node_modules
