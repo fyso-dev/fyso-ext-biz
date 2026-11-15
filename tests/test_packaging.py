@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Packaging(unittest.TestCase):
     def copy(self, project):
         return subprocess.run(['uvx', '--from', 'copier==9.19.1', 'copier', 'copy',
-            '--trust', '--defaults', str(ROOT), str(project)],
+            '--trust', '--defaults', '--vcs-ref', 'HEAD', str(ROOT), str(project)],
             capture_output=True, text=True, timeout=120)
 
     def setUp(self):
