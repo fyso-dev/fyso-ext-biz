@@ -125,7 +125,7 @@
     "partnerReady": "Tu asistente de negocio: conoce tus objetivos y te ayuda a decidir qué hacer.",
     "partnerPending": "Se está preparando tu asistente de negocio.",
     "partnerOpen": "Hablar con Biz Partner",
-    "scope": "Todo lo que ves acá se lee de Fyso Business con la cuenta conectada; nada se modifica desde esta página.",
+    "scope": "Los datos y cambios usan la cuenta conectada de Fyso Business.",
     "previewTeam": "Agentes de este equipo:",
     "tabWork": "Trabajo",
     "workError": "No pudimos consultar el trabajo. Probá de nuevo más tarde.",
@@ -137,6 +137,20 @@
     "workHistory": "Envíos recientes",
     "workHistoryEmpty": "Todavía no hay envíos.",
     "workSent": "Enviado",
-    "workUncertain": "Estado incierto: revisá la conversación antes de actuar"
+    "workUncertain": "Estado incierto: revisá la conversación antes de actuar",
+    "workBot": "Agente que recibe el trabajo",
+    "workNoBot": "Desactivado",
+    "workSaveBot": "Guardar destino",
+    "workConfigError": "No se pudo guardar el destino. Revisá si el archivo tiene cambios sin guardar.",
+    "workCreate": "Crear trabajo",
+    "workDestination": "Se asignará a {{identity}}.",
+    "workObjective": "Objetivo (opcional)",
+    "workAnchor": "Resultado clave o palanca aprobada (opcional)",
+    "workOptional": "Sin seleccionar",
+    "workTitle": "Título",
+    "workInstructions": "Instrucciones",
+    "workCreated": "Solicitud creada: {{id}}",
+    "workCreateDenied": "Biz rechazó la solicitud. Revisá los datos y permisos.",
+    "workCreateUncertain": "No sabemos si se creó. Revisá Biz antes de volver a intentar."
   }
 }

@@ -68,7 +68,7 @@ Copier records the source and tag in `.copier-answers.ext-biz.yml`. Updates foll
 
 ## Privacy and behavior
 
-The page reads native Biz context, KPIs, objectives/KRs, objective visions, palancas, requests and teams through process-side Dagu workflows. Tokens stay in `.data/ext/biz/` or sops, never in browser storage, URLs or workflow parameters. Project gateway users share the connected account's scope.
+The page reads native Biz context, KPIs, objectives/KRs, objective visions, palancas, requests and teams through the private extension API and Dagu. The Work tab creates agent requests and configures their destination bot through a versioned Dagu workflow; see [dispatch](docs/dispatch.md). Tokens stay in `.data/ext/biz/` or sops, never in browser storage, URLs or workflow parameters. Project gateway users share the connected account's scope.
 
 Bots act in Biz under the project's single agent identity; Biz cannot tell one project bot from another. A bot's approval mode (`ask`) still asks before each MCP call unless the project allows it.
 

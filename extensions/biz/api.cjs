@@ -45,7 +45,7 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
       const result = await mcp.call('solicitudes_disponibles');
       if (!Array.isArray(result.solicitudes) || typeof result.agente !== 'string') throw Error('invalid_response');
       const available = result.solicitudes.filter(r => r.agenteDestino === result.agente).slice(0,100).map(r => ({id:r.id, title:r.titulo}));
-      return {...require('./dispatch.cjs').status(env), available};
+      return {...require('./dispatch.cjs').status(env), available, identity:result.agente};
     }),
     'POST /logout': () => { auth.store({env}).logout(); reset(); return biz.statusOf(env); },
   };
@@ -56,6 +56,23 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
       res.writeHead(status, {'Content-Type':'application/json', 'Cache-Control':'no-store'});
       res.end(JSON.stringify(body));
     };
+    if (req.method === 'POST' && url.pathname === '/work') {
+      try {
+        let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 20000) throw Error('invalid_input'); }
+        const data = JSON.parse(body);
+        const valid = v => typeof v === 'string' && v.trim().length > 0 && v.length <= 10000;
+        if (!valid(data.title) || !valid(data.instructions) || !valid(data.department) || (data.kr && !valid(data.kr)) || (data.lever && !valid(data.lever)) || (data.kr && data.lever)) throw Error('invalid_input');
+        const mcp = await open();
+        const identity = await mcp.call('solicitudes_disponibles');
+        if (!valid(identity.agente) || identity.agente.length > 120) throw Error('invalid_input');
+        const args = {ejecutor:'agente', agente_destino:identity.agente, titulo:data.title.trim(), instrucciones:data.instructions.trim(), ...(data.lever ? {palanca_id:data.lever} : data.kr ? {key_result_id:data.kr} : {departamento_id:data.department})};
+        // Never retry a business mutation after an ambiguous response.
+        const result = await mcp.call('crear_solicitud', args);
+        if (!result || typeof result.id !== 'string') throw Error('uncertain');
+        send(200, {id:result.id});
+      } catch (error) { send(200, {error:error.message === 'invalid_input' || error.message === 'tool_denied' ? error.message : 'uncertain'}); }
+      return;
+    }
     if (!route) { send(404, {error:'not_found'}); return; }
     try { send(200, await route(url.searchParams)); }
     catch (error) {
