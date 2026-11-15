@@ -84,3 +84,9 @@ test('refuses authorization servers on another origin', async () => {
   const transport = async () => new Response(JSON.stringify({authorization_endpoint: 'https://evil.invalid/a', token_endpoint: `${BIZ}/t`, registration_endpoint: `${BIZ}/r`, code_challenge_methods_supported: ['S256']}));
   await assert.rejects(store({env: e, transport}).begin('http://x/callback'), {message: 'oauth_not_supported'});
 });
+
+test('OAuth grants use the provider MCP route; personal tokens keep /api/mcp', () => {
+  const {endpoint} = require('../extensions/biz/biz.cjs');
+  assert.equal(endpoint('https://fyso.biz'), 'https://fyso.biz/api/mcp');
+  assert.equal(endpoint('https://fyso.biz', true), 'https://fyso.biz/mcp');
+});

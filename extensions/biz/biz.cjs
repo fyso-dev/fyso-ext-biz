@@ -1,11 +1,12 @@
 // Thin read-only MCP adapter. Business rules and authorization remain in Biz.
 const LIMIT = 100;
 const auth = require('./auth.cjs');
-function endpoint(origin) {
-  return `${auth.origin(origin)}/api/mcp`;
+// Personal `fyb_` tokens use /api/mcp; OAuth grants use the provider's /mcp route.
+function endpoint(origin, oauth = false) {
+  return `${auth.origin(origin)}${oauth ? '/mcp' : '/api/mcp'}`;
 }
-function client(origin, token, transport = fetch) {
-  const url = endpoint(origin);
+function client(origin, token, transport = fetch, {oauth = false} = {}) {
+  const url = endpoint(origin, oauth);
   if (!token || /[\r\n]/.test(token)) throw Error('missing_token');
   let id = 0, session, protocol = '2025-03-26';
   async function rpc(method, params, notification = false) {
@@ -134,7 +135,8 @@ const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavail
   'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','uncommitted_changes','secret_detected'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
-  return env.BOT_FYSO_BIZ_TOKEN || auth.store({env}).accessToken();
+  if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
+  return {token:await auth.store({env}).accessToken(), oauth:true};
 }
 async function teams(mcp) {
   await mcp.initialize();
@@ -167,7 +169,8 @@ if (require.main === module) (async()=>{
     return;
   }
   if (command === 'logout') { auth.store().logout(); console.log(JSON.stringify({connected:false})); return; }
-  const mcp = client(process.env.FYSO_BIZ_URL || '', await token());
+  const credential = await token();
+  const mcp = client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth:credential.oauth});
   if (command === 'check') {
     await mcp.initialize();
     const tools = await mcp.tools();
