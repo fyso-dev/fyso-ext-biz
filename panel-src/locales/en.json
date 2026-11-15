@@ -55,6 +55,7 @@
       "unsupported_format": "This team uses a newer format. Update the Fyso Biz extension.",
       "invalid_export": "The team has agents without a name or with repeated names. Fix it in Fyso Business.",
       "name_conflict": "You already have an agent called “{{bot}}”. Rename it here or in Fyso Business.",
+      "team_conflict": "You already have a team or room called “{{bot}}”. Rename it here or in Fyso Business.",
       "no_model": "The project has no agent with a model to use as reference.",
       "uncommitted_changes": "This team's files have unsaved changes. Commit them and try again.",
       "secret_detected": "The team seems to contain a password or key. Nothing was brought in.",

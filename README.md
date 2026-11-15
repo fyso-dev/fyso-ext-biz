@@ -31,15 +31,26 @@ The extension runs a small login process (`ext-biz-login`, the extension port) b
 
 OAuth grants call Biz on `/mcp`; a personal `fyb_` token (`BOT_FYSO_BIZ_TOKEN`, optional, through `mise run secrets`) calls `/api/mcp` and takes precedence when set.
 
+## Bots in Fyso Business
+
+The OAuth grant is one **agent** in Biz: `oauth:<clientId>:<user>`, named after the registered client (`Fyso project <slug>`) unless the person gives it a nickname in Biz. Requests addressed to that name are this project's work.
+
+Bots and coding agents load the `fyso-biz` MCP server from `.mcp.json`. It is a local stdio proxy (`extensions/biz/mcp-proxy.cjs`, started through `run-ext.sh`) that forwards to Biz with the project's current credential, refreshing the OAuth token as needed, so no credential is written to `.mcp.json` or given to a bot. Biz has no per-tool scopes, so the proxy enforces an allow-list (`ALLOWED` in `mcp-proxy.cjs`):
+
+- reads: `contexto`, `buscar_contexto`, `como_trabajar_en_fyso`, `explicar_kpi`, `obtener_alineacion`, `vision_objetivo`, `listar_objetivos`, `listar_solicitudes`, `listar_checkins`, `listar_historial_kpi`, `listar_equipos`, `ver_solicitud`, `ver_entrega`, `ver_nota`;
+- the request work cycle: `solicitudes_disponibles`, `tomar_solicitud`, `soltar_solicitud`, `registrar_avance`, `subir_evidencia`, `cerrar_solicitud`, `crear_nota`.
+
+Every other tool is hidden from `tools/list` and refused on `tools/call` with a JSON-RPC error. Person-side decisions (approving palancas, authorizing execution, creating requests, accepting deliveries) stay in Biz. Biz does not push work: a bot finds it with `solicitudes_disponibles`. The personal-token path goes through the same proxy and allow-list.
+
 ## Download an agent team
 
 Panel → Fyso Biz → *Agent teams* lists the teams in the connection's scope (`listar_equipos`). *Download* reads the team's export (`exportar_equipo`, format `fyso-equipo/v1`) and:
 
-1. writes `project/bots/biz/<team>/souls/<agent>.md` (soul, instructions and team prompt), `skills/<skill>/SKILL.md` and `source.json` (team id and version), scans them with gitleaks and commits them (`biz: import team <slug> v<version>`);
-2. proposes `project/bots/team.yaml` with one bot per agent and runs the framework's own `fyso-bots-plan` preview;
+1. writes `project/bots/biz/<team>/souls/<agent>.md` (soul and instructions), `brief.md` (the team prompt), `skills/<skill>/SKILL.md` and `source.json` (team id and version), scans them with gitleaks and commits them (`biz: import team <slug> v<version>`);
+2. proposes `project/bots/team.yaml` with an OpenMausBot **native team** — a `teams:` entry named after the Biz team whose `brief` is `brief.md`, `team: <name>` on one bot per agent, and one room with the team's name and all its bots — and runs the framework's own `fyso-bots-plan` preview;
 3. on *Apply team*, runs `fyso-bots-apply`, which snapshots, applies to OpenMausBot and commits the team file.
 
-Only configuration travels. New bots use the engine of the project's first non-chief bot, `approval: ask` and the team's skills; local changes to model, approval or tools survive a later download. Downloading again updates the bots this team created, removes agents retired in Biz, and refuses to take over a bot with the same name that did not come from the team. Connectors per agent are not part of the export yet.
+Only configuration travels. New bots use the engine of the project's first non-chief bot, `approval: ask` and the team's skills; local changes to model, approval or tools survive a later download. Downloading again updates the bots, the team (found by its brief file, so a rename in Biz follows) and its room in place, removes agents retired in Biz (also from other rooms), keeps comments and unrelated bots and rooms, and refuses to take over a bot, team or room with the same name that did not come from the import. A room's `responder` you add survives while it stays a member. Connectors per agent are not part of the export yet.
 
 The extension contributes its own tab/page through `extensions/biz/pages/overview.yaml` and compiled assets in `extensions/biz/panel/`. It appears only while installed, at `/#/extensions/biz/overview`, using the host's theme/language and optional panel SDK.
 
@@ -58,7 +69,7 @@ Copier records the source and tag in `.copier-answers.ext-biz.yml`. Updates foll
 
 The page reads native Biz context, KPIs, objectives/KRs, objective visions, palancas, requests and teams through process-side Dagu workflows. Tokens stay in `.data/ext/biz/` or sops, never in browser storage, URLs or workflow parameters. Project gateway users share the connected account's scope.
 
-Known limit: the `fyso-biz` MCP server that bots and coding agents load from `.mcp.json` still authenticates with `BOT_FYSO_BIZ_TOKEN`. Bots that call Biz directly need that token until the OAuth grant is exposed to them. Native bots retain instructed mutation tools under Biz authorization; requests, execution and acceptance are separate decisions.
+Bots act in Biz under the project's single agent identity; Biz cannot tell one project bot from another. A bot's approval mode (`ask`) still asks before each MCP call unless the project allows it.
 
 No secrets, organization data or test credentials belong in this repository. The initial integration evidence uses synthetic screenshots; real authenticated reads were checked separately.
 

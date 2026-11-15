@@ -55,6 +55,7 @@
       "unsupported_format": "Este equipo usa un formato más nuevo. Actualizá la extensión Fyso Biz.",
       "invalid_export": "El equipo tiene agentes sin nombre o con nombres repetidos. Corregilo en Fyso Business.",
       "name_conflict": "Ya tenés un agente llamado «{{bot}}». Cambiale el nombre acá o en Fyso Business.",
+      "team_conflict": "Ya tenés un equipo o una sala llamada «{{bot}}». Cambiale el nombre acá o en Fyso Business.",
       "no_model": "El proyecto no tiene ningún agente con modelo para tomar como referencia.",
       "uncommitted_changes": "Hay cambios sin guardar en los archivos de este equipo. Guardalos en git y volvé a intentar.",
       "secret_detected": "El equipo parece contener una contraseña o clave. No se trajo nada.",
