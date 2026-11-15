@@ -123,6 +123,7 @@
     "partnerReady": "Your business assistant: it knows your objectives and helps you decide what to do.",
     "partnerPending": "Your business assistant is being prepared.",
     "partnerOpen": "Talk to Biz Partner",
-    "scope": "Everything here is read from Fyso Business with the connected account; nothing is changed from this page."
+    "scope": "Everything here is read from Fyso Business with the connected account; nothing is changed from this page.",
+    "previewTeam": "Agents in this team:"
   }
 }

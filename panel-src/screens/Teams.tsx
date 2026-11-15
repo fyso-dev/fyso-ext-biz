@@ -79,7 +79,7 @@ export function Teams({bizUrl}:{bizUrl?:string}) {
         {error?.team === team.id && <p className="biz-error" role="alert">{error.text}</p>}
         {open && preparing && <p role="status" className="mute">{t("biz.teamPreparing")}</p>}
         {open && prepared && plan && <div className="biz-preview">
-          <p><strong>{t("biz.previewTitle")}</strong></p>
+          <p><strong>{t(plan.created + plan.changed + plan.deleted === 0 ? "biz.previewTeam" : "biz.previewTitle")}</strong></p>
           <ul className="biz-bots">{prepared.bots.map(bot=><li key={bot.name}><span className="avatar" aria-hidden="true">{bot.name.charAt(0).toUpperCase()}</span><span><strong>{bot.name}</strong>{bot.title && <><br/><span className="mute">{bot.title}</span></>}</span></li>)}</ul>
           {prepared.skills.length > 0 && <p className="mute">{t("biz.previewSkills", {skills:prepared.skills.join(", ")})}</p>}
           {plan.created + plan.changed + plan.deleted === 0 ? <p className="mute">{t("biz.previewNoChanges")}</p>

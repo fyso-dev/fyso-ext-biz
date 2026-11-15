@@ -123,6 +123,7 @@
     "partnerReady": "Tu asistente de negocio: conoce tus objetivos y te ayuda a decidir qué hacer.",
     "partnerPending": "Se está preparando tu asistente de negocio.",
     "partnerOpen": "Hablar con Biz Partner",
-    "scope": "Todo lo que ves acá se lee de Fyso Business con la cuenta conectada; nada se modifica desde esta página."
+    "scope": "Todo lo que ves acá se lee de Fyso Business con la cuenta conectada; nada se modifica desde esta página.",
+    "previewTeam": "Agentes de este equipo:"
   }
 }
