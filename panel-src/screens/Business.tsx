@@ -3,7 +3,7 @@ import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, RelTime } from "@fyso/panel";
 import type { BizSnapshot, BizPlan } from "../api/biz";
 
-const TONE:Record<string,string> = {saludable:"pill-ok", cumplido:"pill-ok", activo:"pill-accent", en_riesgo:"pill-warn", sin_datos:"pill-unk", archivado:"pill-unk"};
+const TONE:Record<string,string> = {saludable:"pill-ok", en_rango:"pill-ok", cumplido:"pill-ok", activo:"pill-accent", en_riesgo:"pill-warn", fuera_de_rango:"pill-down", dato_vencido:"pill-warn", sin_datos:"pill-unk", archivado:"pill-unk"};
 
 /** Objectives, KPIs and palancas of one department, read-only. */
 export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>void}) {
@@ -71,7 +71,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
         <h2 id="biz-kpis" className="biz-h2">{t("biz.kpis")}</h2>
         {!data.kpis.length ? <p className="mute">{t("biz.kpisEmpty")}</p> :
           <div className="biz-kpi-grid">{data.kpis.map(k=><article className="card biz-kpi" key={k.id}>
-            <div className="connector-heading"><span className="biz-kpi-name">{k.name}</span><span className={`pill ${TONE[k.status] ?? "pill-unk"}`}>{status(k.status)}</span></div>
+            <div className="connector-heading"><span className="biz-kpi-name">{k.name}</span>{k.status && <span className={`pill ${TONE[k.status] ?? "pill-unk"}`}>{status(k.status)}</span>}</div>
             <span className="stat">{format(k.value)}{k.value !== null && k.unit && <small className="biz-unit"> {k.unit}</small>}</span>
             <span className="hint">{t("biz.target")} {t(`biz.operators.${k.operator}`, {defaultValue:k.operator})} {format(k.target)}{k.operator === "entre" && k.targetMax != null && ` – ${format(k.targetMax)}`}{k.window !== null && ` · ${t("biz.window", {count:k.window})}`}</span>
           </article>)}</div>}
@@ -81,7 +81,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
         <h2 id="biz-objectives" className="biz-h2">{t("biz.objectives")}</h2>
         {!data.objectives.length && <p className="mute">{t("biz.objectivesEmpty")}</p>}
         {data.objectives.map(o=><article className="card connector-card" key={o.id}>
-          <div className="connector-heading"><h3>{o.name}</h3><span className={`pill ${TONE[o.status] ?? "pill-unk"}`}>{status(o.status)}</span></div>
+          <div className="connector-heading"><h3>{o.name}</h3>{o.status && <span className={`pill ${TONE[o.status] ?? "pill-unk"}`}>{status(o.status)}</span>}</div>
           {o.keyResults.map(kr=>{ const pct = progress(kr.value, kr.target); return <div className="biz-kr" key={kr.id}>
             <div className="connector-heading"><span>{kr.name}</span><span className="hint">{format(kr.value)} / {format(kr.target)}</span></div>
             <div className="biz-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} aria-label={kr.name}><span style={{width:`${pct ?? 0}%`}} /></div>

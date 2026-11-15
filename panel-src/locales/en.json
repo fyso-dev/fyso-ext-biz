@@ -104,7 +104,10 @@
       "failed": "Failed",
       "pendiente": "Pending",
       "aprobada": "Approved",
-      "descartada": "Dismissed"
+      "descartada": "Dismissed",
+      "en_rango": "On track",
+      "fuera_de_rango": "Off track",
+      "dato_vencido": "Stale data"
     },
     "operators": {
       "gte": "≥",

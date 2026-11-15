@@ -104,7 +104,10 @@
       "failed": "Fallida",
       "pendiente": "Pendiente",
       "aprobada": "Aprobada",
-      "descartada": "Descartada"
+      "descartada": "Descartada",
+      "en_rango": "En rango",
+      "fuera_de_rango": "Fuera de rango",
+      "dato_vencido": "Dato vencido"
     },
     "operators": {
       "gte": "≥",
