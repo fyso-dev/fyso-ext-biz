@@ -65,13 +65,14 @@ test('appends new bots with the local engine, keeps comments, and updates owned 
 });
 
 test('re-import updates the team in place, follows a rename and keeps unrelated rooms', () => {
-  const first = team.proposeTeam(TEAM, team.plan(exported()), yaml).replace(/\nrooms:\n/, '\nrooms:\n  - name: Ventas # mine\n    team: Comercial\n    members: [analista, Builder]\n    responder: analista\n');
+  const first = team.proposeTeam(TEAM, team.plan(exported()), yaml).replace('name: Builder # keep this comment', 'name: Builder # keep this comment\n    team: Comercial').replace(/\nrooms:\n/, '\nrooms:\n  - name: Ventas # mine\n    team: Comercial\n    members: [analista, Builder]\n    responder: analista\n');
   const renamed = exported({equipo: {...exported().equipo, nombre: 'Comercial B2B'}, agentes: [exported().agentes[0]]});
   const text = team.proposeTeam(first, team.plan(renamed), yaml), doc = parse(text);
   assert.match(text, /# mine/);
   assert.deepEqual(doc.teams, [{name: 'Comercial B2B', brief: {file: '__R__/project/bots/biz/comercial/brief.md'}}]);
   assert.deepEqual(doc.rooms, [{name: 'Ventas', team: 'Comercial B2B', members: ['Builder']}, {name: 'Comercial B2B', team: 'Comercial B2B', members: ['Redactor']}]);
   assert.equal(doc.bots.find(b => b.name === 'Redactor').team, 'Comercial B2B');
+  assert.equal(doc.bots.find(b => b.name === 'Builder').team, 'Comercial B2B');
   assert.equal(team.proposeTeam(text, team.plan(renamed), yaml), text);
 });
 

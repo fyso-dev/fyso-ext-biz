@@ -25,6 +25,15 @@ test('ambiguous delivery is recorded and never automatically retried',async()=>{
   assert.equal((await dispatch({env,mcp,deliver})).uncertain,1);
   await dispatch({env,mcp,deliver}); assert.equal(count,1); assert.equal(status(env).entries[0].state,'uncertain');
 });
+test('unassigned and reserved requests do not starve later eligible work',async()=>{
+  const {env,configure}=fixture(); configure({enabled:true,kind:'bot',target:'bot-id'}); const sent=[];
+  const deliver=async (_target,_port,id)=>sent.push(id);
+  const assigned=Array.from({length:101},(_,i)=>({id:`assigned-${i}`,agenteDestino:'Project A'}));
+  const unassigned=Array.from({length:101},(_,i)=>({id:`other-${i}`,agenteDestino:null}));
+  assert.equal((await dispatch({env,mcp:remote([...unassigned,...assigned]),deliver})).sent,100);
+  assert.equal((await dispatch({env,mcp:remote([...unassigned,...assigned]),deliver})).sent,1);
+  assert.equal(sent.at(-1),'assigned-100');
+});
 test('invalid identity, target and project port fail closed',async()=>{
   const {env,configure}=fixture(); configure({enabled:true,kind:'bot',target:'-bad'});
   await assert.rejects(dispatch({env}),/invalid_dispatch_config/);

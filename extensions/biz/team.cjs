@@ -90,6 +90,11 @@ function proposeTeam(current, imported, yaml = yamlModule()) {
   const wanted = new Set(imported.bots.map(bot => bot.name));
   const retired = new Set([...owned.keys()].filter(name => !wanted.has(name)));
   bots.items = bots.items.filter(node => !(yaml.isMap(node) && retired.has(String(node.get('name')))));
+  if (previous !== null && previous !== imported.teamName) {
+    for (const node of bots.items) {
+      if (yaml.isMap(node) && same(String(node.get('team') || ''), previous)) node.set('team', imported.teamName);
+    }
+  }
   for (const bot of imported.bots) {
     const fields = {team: imported.teamName, ...(bot.title && {title: bot.title}), soul: {file: local(bot.soul)}, skills: imported.skills.map(file => ({file: local(file)}))};
     const node = owned.get(bot.name);

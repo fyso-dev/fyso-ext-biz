@@ -45,16 +45,18 @@ async function dispatch({env = process.env, mcp, deliver = send, now = () => new
   const data = await mcp.call('solicitudes_disponibles');
   if (!valid(data.agente) || !Array.isArray(data.solicitudes)) throw Error('invalid_available_requests');
   const directory = dir(env); fs.mkdirSync(directory, {recursive:true, mode:0o700});
-  let sent = 0, uncertain = 0;
-  for (const request of data.solicitudes.slice(0, 100)) {
+  let sent = 0, uncertain = 0, attempted = 0;
+  for (const request of data.solicitudes) {
     // Unassigned work can belong to other projects. Only explicit assignments to
     // the identity returned by this very connection are safe to deliver.
     if (typeof request.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(request.id) || request.agenteDestino !== data.agente) continue;
     const file = path.join(directory, key(env.FYSO_BIZ_URL || '', request.id) + '.json');
     const entry = {id:request.id, target, state:'uncertain', at:now()};
     try { record(file, entry, 'wx'); } catch (error) { if (error.code === 'EEXIST') continue; throw error; }
+    attempted++;
     try { const receipt = await deliver(target, env.FYSO_OMB_PORT, request.id); record(file, {...entry, state:'sent', ...(receipt && {receipt})}); sent++; }
     catch { uncertain++; }
+    if (attempted >= 100) break;
   }
   return {enabled:true, sent, uncertain};
 }
