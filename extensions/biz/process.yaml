@@ -1,0 +1,6 @@
+version: "0.5"
+processes:
+  ext-biz-login:
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/gateway.cjs
+    readiness_probe:
+      exec: { command: framework/scripts/run-ext.sh biz -- bash -c 'curl -fsS "http://127.0.0.1:$FYSO_EXT_BIZ_PORT/health"' }

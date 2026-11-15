@@ -1,6 +1,8 @@
 [tools]
 node = "24.15.0"
 "aqua:astral-sh/uv" = "0.5.1"
+# Same pin as the framework: team.cjs reads the team file through the yaml CLI's library.
+"npm:yaml" = "2.8.1"
 
 [tasks.test]
 run = "node --test tests/*.test.cjs"

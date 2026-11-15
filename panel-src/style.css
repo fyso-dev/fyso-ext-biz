@@ -7,3 +7,4 @@
   .biz-objective .row { flex-wrap: wrap; gap: 12px; }
   .biz-objective h3 { flex-basis: 100%; margin-bottom: 0; }
 }
+.biz-plan { white-space: pre-wrap; font-size: 0.85em; margin: 12px 0; }

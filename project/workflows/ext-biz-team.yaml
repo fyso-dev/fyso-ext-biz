@@ -1,0 +1,10 @@
+description: Connect to Fyso Biz and download a team's configuration into this project
+working_dir: ${FYSO_ROOT}
+max_active_runs: 1
+params:
+  - FYSO_BIZ_OP: status
+  - FYSO_BIZ_TEAM: ""
+steps:
+  - id: team
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs panel
+    output: RESULT

@@ -23,7 +23,8 @@ class Packaging(unittest.TestCase):
             project = Path(temporary)
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
-            api.write_text('{"version":1}\n')
+            api.write_text('{"version":2}\n')
+            (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             (project / 'README.md').write_text('Project-owned documentation\n')
             result = self.copy(project)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -31,6 +32,9 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/panel/main.js').is_file())
             self.assertTrue((project / 'extensions/biz/pages/overview.yaml').is_file())
             self.assertTrue((project / 'extensions/biz/bot.cjs').is_file())
+            self.assertTrue((project / 'extensions/biz/process.yaml').is_file())
+            self.assertIn('biz.{$FYSO_WEB_DOMAIN}', (project / 'extensions/biz/Caddyfile').read_text())
+            self.assertIn('FYSO_EXT_BIZ_PORT = "6110"', (project / '.config/mise/conf.d/ext-biz.toml').read_text())
             mcp = json.loads((project / 'extensions/biz/mcp.json').read_text())
             self.assertEqual(mcp['mcpServers']['fyso-biz']['headers']['Authorization'],
                              'Bearer ${BOT_FYSO_BIZ_TOKEN}')
@@ -50,7 +54,8 @@ class Packaging(unittest.TestCase):
             project = Path(temporary)
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
-            api.write_text('{"version":2}\n')
+            api.write_text('{"version":0}\n')
+            (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             result = self.copy(project)
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse((project / 'extensions').exists())
@@ -64,6 +69,7 @@ class Packaging(unittest.TestCase):
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
             api.write_text('{"version":1}\n')
+            (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             def run(args, cwd):
                 result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

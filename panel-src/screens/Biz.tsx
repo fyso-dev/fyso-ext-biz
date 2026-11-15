@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
-import type { BizSnapshot, BizPlan } from "../api/biz";
+import type { BizSnapshot, BizPlan, BizStatus } from "../api/biz";
+import { Teams } from "./Teams";
 import { ActionButton } from "@fyso/panel";
 import { External, RelTime } from "@fyso/panel";
 import { useDaguAction } from "@fyso/panel";
@@ -12,7 +13,18 @@ export function Biz() {
   const installed = s.extensions.data?.some(e=>e.id === "biz") ?? false;
   const bizBot = s.runtimeBots.data?.find(b=>b.name === "Biz Partner");
   const extension = s.extensions.data?.find(e=>e.id === "biz");
-  const tokenSet = extension?.secrets.some(secret=>secret.name === "BOT_FYSO_BIZ_TOKEN" && secret.set);
+  const statusAction = useDaguAction<BizStatus>(s.backend,"ext-biz-team","result");
+  const logout = useDaguAction<BizStatus>(s.backend,"ext-biz-team","result");
+  const [connection,setConnection] = useState<BizStatus>();
+  const tokenSet = connection?.connected === true;
+  const readStatus = async () => {
+    const result = await statusAction.start({FYSO_BIZ_OP:"status"});
+    setConnection(result && typeof result.connected === "boolean" ? result : {connected:false, error:result?.error ?? "connection_failed"});
+  };
+  const disconnect = async () => { await logout.start({FYSO_BIZ_OP:"logout"}); await readStatus(); };
+  useEffect(()=>{ setConnection(undefined); if (installed) void readStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[installed, extension?.secrets.find(secret=>secret.name === "BOT_FYSO_BIZ_TOKEN")?.set]);
   const action = useDaguAction<BizSnapshot>(s.backend,"ext-biz-context","result");
   const vision = useDaguAction<BizPlan>(s.backend,"ext-biz-objective","result");
   const [plan,setPlan] = useState<BizPlan>();
@@ -60,12 +72,19 @@ export function Biz() {
     </div>
     {s.extensions.status === "loading" && <p role="status">{t("common.loading")}</p>}
     {s.extensions.status === "error" && <div className="banner banner-down" role="alert">{t("biz.configError")} <button className="btn btn-ghost" onClick={s.reload}>{t("common.retry")}</button></div>}
-    {installed && !tokenSet && <section className="card biz-onboarding"><h2>{t("biz.credentialsTitle")}</h2><p>{t("biz.credentialsDescription")}</p><code>mise run secrets</code><p>{t("biz.restart")}</p><button className="btn btn-pri" onClick={s.reload}>{t("biz.checkCredentials")}</button></section>}
+    {installed && !connection && <p role="status">{t("biz.connecting")}</p>}
+    {installed && connection && !tokenSet && <section className="card biz-onboarding"><h2>{t("biz.connectTitle")}</h2><p>{t("biz.connectDescription")}</p>
+      {connection.error && <p className="banner banner-down" role="alert">{t("biz.connectionError")}</p>}
+      {connection.login ? <a className="btn btn-pri" href={connection.login} target="_top">{t("biz.connect")}</a> : <p>{t("biz.restart")}</p>}
+      <p className="mute">{t("biz.connectScope", {url:connection.url ?? ""})}</p>
+      <details><summary>{t("biz.credentialsTitle")}</summary><p>{t("biz.credentialsDescription")}</p><code>mise run secrets</code></details>
+    </section>}
     {installed && tokenSet && <>
       <div className="observ-source"><span className={`pill ${data ? "pill-ok" : "pill-unk"}`} role="status">{t(data ? "biz.connected" : busy ? "biz.connecting" : "biz.disconnected")}</span>
         {data && <>{data.organization && <strong>{data.organization}</strong>}<span className="mute">{t("biz.updated")} <RelTime at={data.collectedAt}/></span><span className="mute">{t("biz.tools",{count:data.toolCount})}</span></>}
       </div>
-      <p className="mute">{t("biz.scope")}</p>
+      <p className="mute">{t("biz.scope")}{connection?.method === "oauth" && <> <button type="button" className="btn btn-ghost" disabled={logout.phase === "running"} onClick={()=>void disconnect()}>{t("biz.disconnect")}</button></>}</p>
+      <Teams />
       <div className="observ-filters"><label>{t("biz.department")} <select disabled={busy || !departments.length} value={department} onChange={e=>{setDepartment(e.target.value);void refresh(e.target.value);}}><option value="">{t("biz.selectDepartment")}</option>{departments.map(d=><option value={d.id} key={d.id}>{d.name}</option>)}</select></label></div>
       {failed && <div className="banner banner-down" role="alert">{t("biz.connectionError")}</div>}
       {busy && <p role="status">{t("biz.loading")}</p>}

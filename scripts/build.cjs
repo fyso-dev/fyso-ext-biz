@@ -5,7 +5,7 @@ const host=process.env.FYSO_FRAMEWORK_ROOT;
 if(!host)throw Error('Set FYSO_FRAMEWORK_ROOT to a framework checkout or generated project with panel API v1.');
 const panel=fs.existsSync(path.join(host,'template/framework/panel'))?path.join(host,'template/framework/panel'):path.join(host,'framework/panel');
 const api=JSON.parse(fs.readFileSync(path.join(panel,'extension-api.json'),'utf8'));
-if(api.version!==1)throw Error('Panel extension API v1 is required.');
+if(!(api.version>=1))throw Error('Panel extension API v1 or later is required.');
 const data=path.join(root,'.data/build');fs.mkdirSync(data,{recursive:true});
 const config={extends:path.join(root,'tsconfig.json'),compilerOptions:{baseUrl:root,ignoreDeprecations:'6.0',paths:{'@fyso/panel':[path.join(panel,'src/extension-sdk.tsx')],'react/jsx-runtime':[path.join(panel,'node_modules/@types/react/jsx-runtime.d.ts')]}},include:[path.join(root,'panel-src'),path.join(panel,'node_modules/vite/client.d.ts')]};
 const file=path.join(data,'tsconfig.json');fs.writeFileSync(file,JSON.stringify(config));

@@ -1,8 +1,15 @@
 [env]
 FYSO_BIZ_URL = "{{ biz_url }}"
+FYSO_EXT_BIZ_PORT = "{{ extension_port }}"
 [tasks."biz:check"]
 description = "Check Fyso Biz authentication and available MCP tools"
 run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs check"
 [tasks."biz:context"]
 description = "Read scoped Fyso Biz context"
 run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs"
+[tasks."biz:status"]
+description = "Show whether this project is connected to Fyso Biz"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs status"
+[tasks."biz:teams"]
+description = "List the Fyso Biz agent teams this connection can download"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs teams"
