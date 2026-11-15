@@ -54,7 +54,7 @@ function decide({local, remote, record}) {
 }
 
 /** Local departments (from the project's team file) and recorded ones, with their sync state. */
-async function status({mcp, root, tpl = templates(root), departments}) {
+async function status({mcp, root, tpl = templates(root), departments, git}) {
   const state = readState(root);
   await mcp.initialize();
   const tools = await mcp.tools();
@@ -63,7 +63,7 @@ async function status({mcp, root, tpl = templates(root), departments}) {
     for (const e of (await mcp.call('listar_equipos')).equipos || []) remote[String(e.id)] = Number(e.version) || null;
   }
   const names = [...new Set([...(departments || tpl.departments(root)), ...Object.keys(state.departments)].map(n => String(n).trim()).filter(Boolean))];
-  const rows = [];
+  const rows = [], settled = [];
   for (const name of names) {
     const entry = recordOf(state, name), record = entry?.[1];
     let local = null;
@@ -71,10 +71,12 @@ async function status({mcp, root, tpl = templates(root), departments}) {
     const remoteVersion = record ? remote[record.equipoId] ?? null : null;
     const action = decide({local, remote: remoteVersion, record});
     // Settle a finished pull: the applied department now matches the package.
-    if (record?.pending && action !== 'pending_apply') delete record.pending;
+    if (record?.pending && action !== 'pending_apply') { delete record.pending; settled.push(entry[0]); }
     rows.push({department: entry?.[0] ?? name, equipoId: record?.equipoId ?? null, version: record?.version ?? null,
       remoteVersion, state: action});
   }
+  // Record it, or the next local change would still read as a pull waiting for apply.
+  if (settled.length) saveState(root, state, `biz: applied department ${settled.join(', ')}`, git);
   return {publishSupported: tools.some(t => t.name === 'publicar_equipo'), departments: rows};
 }
 

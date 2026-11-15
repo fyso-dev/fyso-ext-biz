@@ -95,6 +95,10 @@ test('pulling writes the package for review, waits for apply, then settles as sy
   assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments.find(d => d.department === 'Marketing').state, 'pending_apply');
   local.Marketing = 'm4';
   assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments.find(d => d.department === 'Marketing').state, 'synced');
+  assert.deepEqual(sync.readState(root).departments.Marketing, {equipoId: 'e7', version: 4, digest: 'm4'});
+  // A later local change reads as a change to publish, not as a pull waiting for apply.
+  local.Marketing = 'm5';
+  assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments.find(d => d.department === 'Marketing').state, 'publish');
 });
 
 test('a Biz team without a package and an older framework fail with clear codes', async () => {
