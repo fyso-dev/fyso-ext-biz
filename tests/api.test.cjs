@@ -98,3 +98,20 @@ test('the private socket is owner-only and replaces a stale one', async () => {
     assert.equal(status, 204);
   } finally { server.close(); }
 });
+
+test('creating work uses the connected identity and never retries an ambiguous mutation', async () => {
+  let creates=0, args;
+  const base=biz().transport;
+  const transport=async (url,options)=>{
+    const request=JSON.parse(options.body);
+    if (request.method==='tools/call' && request.params.name==='solicitudes_disponibles') return new Response(JSON.stringify({jsonrpc:'2.0',id:request.id,result:text({agente:'Project A',solicitudes:[]})}),{headers:{'content-type':'application/json'}});
+    if (request.method==='tools/call' && request.params.name==='crear_solicitud') {creates++;args=request.params.arguments;throw Error('connection lost');}
+    return base(url,options);
+  };
+  const handler=api({env:env({BOT_FYSO_BIZ_TOKEN:'TEST_ONLY'}),transport});
+  const {Readable}=require('node:stream');
+  const req=Readable.from([JSON.stringify({department:'d1',kr:'kr1',title:'Title',instructions:'Instructions'})]); req.method='POST';req.url='/work';
+  const result=await new Promise(resolve=>handler(req,{writeHead(){},end(body){resolve(JSON.parse(body));}}));
+  assert.deepEqual(result,{error:'uncertain'}); assert.equal(creates,1);
+  assert.deepEqual(args,{ejecutor:'agente',agente_destino:'Project A',titulo:'Title',instrucciones:'Instructions',key_result_id:'kr1'});
+});

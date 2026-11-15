@@ -133,7 +133,7 @@
     "partnerReady": "Your business assistant: it knows your objectives and helps you decide what to do.",
     "partnerPending": "Your business assistant is being prepared.",
     "partnerOpen": "Talk to Biz Partner",
-    "scope": "Everything here is read from Fyso Business with the connected account; nothing is changed from this page.",
+    "scope": "Data and changes use the connected Fyso Business account.",
     "previewTeam": "Agents in this team:",
     "tabWork": "Work",
     "workError": "Could not load work. Try again later.",
@@ -170,6 +170,20 @@
     "syncPublishing": "Publishing…",
     "syncPublished": "Published as version {{version}}.",
     "syncNotSupported": "Your Fyso Business cannot publish teams yet.",
-    "syncVersion": "Version {{version}} in Biz"
+    "syncVersion": "Version {{version}} in Biz",
+    "workBot": "Agent receiving work",
+    "workNoBot": "Disabled",
+    "workSaveBot": "Save destination",
+    "workConfigError": "Could not save the destination. Check for unsaved changes to its file.",
+    "workCreate": "Create work",
+    "workDestination": "Assigned to {{identity}}.",
+    "workObjective": "Objective (optional)",
+    "workAnchor": "Key result or approved lever (optional)",
+    "workOptional": "None selected",
+    "workTitle": "Title",
+    "workInstructions": "Instructions",
+    "workCreated": "Request created: {{id}}",
+    "workCreateDenied": "Biz rejected the request. Check the fields and permissions.",
+    "workCreateUncertain": "Creation is uncertain. Check Biz before trying again."
   }
 }

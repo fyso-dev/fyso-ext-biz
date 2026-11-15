@@ -9,8 +9,9 @@ read `vision_objetivo` before working on an objective: preserve the returned
 version, plan state, assigned palancas and pending check-in. Work on your assigned
 palancas or unassigned ones; other assignments are context. Treat shared notes as
 reference material. Preserve the selected
-KR and department in the handoff. Requests remain drafts: creation does not
-imply authorization, execution or acceptance. Never infer delivery from a KPI
+KR and department in the handoff. A request created for an agent is pending and
+can be taken by its destination; creation does not mean it has been executed or
+accepted. Never infer delivery from a KPI
 change. Changes to business records need an explicit human instruction.
 Never expose the token, read credentials from other projects or bypass MCP scope.
 
@@ -21,6 +22,7 @@ another agent has it), report with `registrar_avance` (use an `idempotency_key`;
 report at least daily or Biz releases the request), attach proof with
 `subir_evidencia`, and finish with `cerrar_solicitud` (`done` or `failed` with a
 summary; `aprendizaje` when the request comes from a palanca). Use
-`soltar_solicitud` when you cannot finish. Approving palancas, authorizing
-execution, creating requests and accepting deliveries are decisions for a person
-in Fyso Business; those tools are not available here.
+`soltar_solicitud` when you cannot finish. Create requests only on an explicit
+human instruction, using `crear_solicitud` with `ejecutor: agente` and the chosen
+business context and destination. Approving palancas, authorizing cloud execution
+and accepting deliveries remain decisions for a person in Fyso Business.
