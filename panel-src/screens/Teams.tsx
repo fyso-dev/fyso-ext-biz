@@ -1,7 +1,7 @@
-import { useEffect, useState } from "@fyso/panel";
+import { useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, External } from "@fyso/panel";
-import type { BizTeam, BizTeams, BizTeamPrepared, BotsPlan } from "../api/biz";
+import type { BizTeam, BizTeamPrepared, BotsPlan } from "../api/biz";
 
 type Applied = {created:number;changed:number;deleted:number;commit:string};
 
@@ -9,14 +9,12 @@ type Applied = {created:number;changed:number;deleted:number;commit:string};
  * Agent teams from Fyso Business. Downloading writes the team's instructions and
  * skills (their own commit); the framework's bots preview/apply adds the bots.
  */
-export function Teams({bizUrl}:{bizUrl?:string}) {
+export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?:string; teams?:BizTeam[]; error?:string; loading:boolean; reload:()=>Promise<void>}) {
   const {t} = useTranslation();
   const s = useStore();
-  const list = useDaguAction<BizTeams>(s.backend, "ext-biz-team", "result");
   const prepare = useDaguAction<BizTeamPrepared>(s.backend, "ext-biz-team", "result");
   const preview = useDaguAction<BotsPlan>(s.backend, "fyso-bots-plan", "plan");
   const apply = useDaguAction<Applied>(s.backend, "fyso-bots-apply", "apply");
-  const [teams, setTeams] = useState<BizTeam[]>();
   const [active, setActive] = useState<string>();
   const [prepared, setPrepared] = useState<BizTeamPrepared>();
   const [plan, setPlan] = useState<BotsPlan>();
@@ -25,14 +23,6 @@ export function Teams({bizUrl}:{bizUrl?:string}) {
 
   const fail = (team:string|undefined, code?:string, bot?:string) =>
     setError({team, text:t(`biz.teamErrors.${code}`, {defaultValue:t("biz.teamErrors.connection_failed"), bot})});
-  const load = async () => {
-    setError(undefined);
-    const result = await list.start({FYSO_BIZ_OP:"teams"});
-    if (!result || result.error || !Array.isArray(result.teams)) { fail(undefined, result?.error); return; }
-    setTeams(result.teams);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(()=>{ void load(); }, []);
 
   const reset = () => { setActive(undefined); setPrepared(undefined); setPlan(undefined); };
   const download = async (team:BizTeam) => {
@@ -49,13 +39,14 @@ export function Teams({bizUrl}:{bizUrl?:string}) {
     const result = await apply.start({TEAM_B64:prepared.teamB64, TEAM_BASE_B64:prepared.teamBaseB64, REMOVAL_REVISION:plan.removalRevision ?? ""});
     if (!result || typeof result.commit !== "string") { fail(active, "apply"); return; }
     setDone({team:active, applied:result}); reset();
-    s.reload(); void load();
+    s.reload(); void reload();
   };
-  const busy = [list, prepare, preview, apply].some(a=>a.phase === "running");
+  const busy = [prepare, preview, apply].some(a=>a.phase === "running");
   const preparing = prepare.phase === "running" || preview.phase === "running";
 
+  const listFailed = listError && t(`biz.teamErrors.${listError}`, {defaultValue:t("biz.teamErrors.connection_failed")});
   if (!teams) return <div className="card empty">
-    {list.phase === "failed" || error ? <><p role="alert">{error?.text ?? t("biz.teamErrors.connection_failed")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></>
+    {listFailed && !loading ? <><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></>
       : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
   </div>;
   if (!teams.length) return <div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
@@ -64,7 +55,9 @@ export function Teams({bizUrl}:{bizUrl?:string}) {
   </div>;
 
   return <div className="biz-stack">
+    {listFailed && !loading && <div className="banner banner-down" role="alert">{listFailed} <button type="button" className="btn btn-sm btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></div>}
     {error && !error.team && <div className="banner banner-down" role="alert">{error.text}</div>}
+    {loading && <p className="hint" role="status">{t("biz.refreshing")}</p>}
     <div className="connector-grid">{teams.map(team=>{
       const state = team.localVersion === null ? "new" : (team.version ?? 0) > team.localVersion ? "update" : "current";
       const open = active === team.id;

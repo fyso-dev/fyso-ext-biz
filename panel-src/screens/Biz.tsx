@@ -1,7 +1,8 @@
-import { useEffect, useState } from "@fyso/panel";
+import { useEffect, useRef, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { External, useDaguAction, useStore } from "@fyso/panel";
-import type { BizSnapshot, BizStatus } from "../api/biz";
+import type { BizOverview, BizSnapshot, BizStatus } from "../api/biz";
+import { forget, read, remember, remembered } from "../api/read";
 import { Teams } from "./Teams";
 import { Business } from "./Business";
 
@@ -13,21 +14,37 @@ export function Biz() {
   const extension = s.extensions.data?.find(e=>e.id === "biz");
   const installed = !!extension;
   const tokenSet = extension?.secrets.find(secret=>secret.name === "BOT_FYSO_BIZ_TOKEN")?.set;
-  const statusAction = useDaguAction<BizStatus>(s.backend, "ext-biz-team", "result");
-  const logout = useDaguAction<BizStatus>(s.backend, "ext-biz-team", "result");
-  const [connection, setConnection] = useState<BizStatus>();
+  const teamsAction = useDaguAction<BizOverview>(s.backend, "ext-biz-team", "result");
+  const logoutAction = useDaguAction<BizStatus>(s.backend, "ext-biz-team", "result");
+  // The last answer shows at once; the page refreshes it in the background.
+  const [overview, setOverview] = useState<BizOverview|undefined>(()=>remembered<BizOverview>("overview"));
+  const [loading, setLoading] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [context, setContext] = useState<BizSnapshot>();
   const [tab, setTab] = useState<Tab>(()=>{ try { return sessionStorage.getItem("biz.tab") === "business" ? "business" : "teams"; } catch { return "teams"; } });
   const bizBot = s.runtimeBots.data?.find(b=>b.name === "Biz Partner");
+  const epoch = useRef(0);
 
-  const readStatus = async () => {
-    const result = await statusAction.start({FYSO_BIZ_OP:"status"});
-    setConnection(result && typeof result.connected === "boolean" ? result : {connected:false, error:result?.error ?? "connection_failed"});
+  const load = async () => {
+    const current = ++epoch.current;
+    setLoading(true);
+    const result = await read<BizOverview>("teams", ()=>teamsAction.start({FYSO_BIZ_OP:"teams"}));
+    if (current !== epoch.current) return;
+    setLoading(false);
+    const next:BizOverview = result?.connection ? result : {connection:overview?.connection, error:result?.error ?? "connection_failed"};
+    setOverview(next);
+    if (!next.error) remember("overview", next);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(()=>{ setConnection(undefined); setContext(undefined); if (installed) void readStatus(); }, [installed, tokenSet]);
+  useEffect(()=>{ if (installed) void load(); return ()=>{ epoch.current++; }; }, [installed, tokenSet]);
   const choose = (next:Tab) => { setTab(next); try { sessionStorage.setItem("biz.tab", next); } catch { /* optional */ } };
-  const disconnect = async () => { await logout.start({FYSO_BIZ_OP:"logout"}); setContext(undefined); await readStatus(); };
+  const disconnect = async () => {
+    setLeaving(true);
+    await read<BizStatus>("logout", ()=>logoutAction.start({FYSO_BIZ_OP:"logout"}), {method:"POST"});
+    forget(); setOverview(undefined); setContext(undefined); setLeaving(false);
+    await load();
+  };
+  const connection = overview?.connection;
   const host = connection?.url ? new URL(connection.url).host : "fyso.biz";
 
   return <main className="page page-wide biz-page">
@@ -36,12 +53,14 @@ export function Biz() {
       {connection?.connected && <div className="biz-account">
         <span className="pill pill-ok" role="status">● {context?.organization ? t("biz.connectedTo", {org:context.organization}) : t("biz.connected")}</span>
         {connection.url && <External href={connection.url}>{t("biz.open")}</External>}
-        {connection.method === "oauth" && <button type="button" className="btn btn-sm btn-ghost" disabled={logout.phase === "running"} onClick={()=>void disconnect()}>{t("biz.disconnect")}</button>}
+        {connection.method === "oauth" && <button type="button" className="btn btn-sm btn-ghost" disabled={leaving} onClick={()=>void disconnect()}>{t("biz.disconnect")}</button>}
       </div>}
     </div>
 
     {s.extensions.status === "error" && <div className="banner banner-down" role="alert">{t("biz.configError")} <button className="btn btn-sm btn-soft" onClick={s.reload}>{t("common.retry")}</button></div>}
-    {installed && !connection && <div className="card empty"><p role="status" className="mute">{t("biz.connecting")}</p></div>}
+    {installed && !connection && (overview?.error && !loading
+      ? <div className="card empty"><p role="alert">{t("biz.connectionError")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></div>
+      : <div className="card empty"><p role="status" className="mute">{t("biz.connecting")}</p></div>)}
 
     {installed && connection && !connection.connected && <section className="card biz-hero" aria-labelledby="biz-connect">
       <span className="empty-icon" aria-hidden="true">⇄</span>
@@ -63,7 +82,9 @@ export function Biz() {
         <button type="button" role="tab" aria-selected={tab === "teams"} aria-pressed={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
         <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
       </div>
-      {tab === "teams" ? <Teams bizUrl={connection.url} /> : <Business onContext={setContext} />}
+      {tab === "teams"
+        ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
+        : <Business onContext={setContext} />}
       {connection.method === "token" && <aside className="card biz-partner">
         <span className="avatar" aria-hidden="true">B</span>
         <div className="grow"><strong>{t("biz.partnerTitle")}</strong><p className="hint">{t(bizBot ? "biz.partnerReady" : "biz.partnerPending")}</p></div>

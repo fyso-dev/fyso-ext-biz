@@ -45,9 +45,27 @@ function server({env = process.env, auth = store({env}), now = Date.now} = {}) {
   });
 }
 
-module.exports = {server};
+/** The panel API on the private socket the framework routes /api/ext/biz/ to (D79). */
+function listenPrivate(handler, socket) {
+  const fs = require('node:fs');
+  // Owner-only from the first instant: the socket is created under this umask.
+  fs.rmSync(socket, {force: true});
+  const previous = process.umask(0o177);
+  const private_ = http.createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') { res.writeHead(204).end(); return; }
+    handler(req, res);
+  });
+  return new Promise((resolve, reject) => private_.once('error', reject).listen(socket, () => {
+    process.umask(previous); fs.chmodSync(socket, 0o600); resolve(private_);
+  }));
+}
+
+module.exports = {server, listenPrivate};
 if (require.main === module) {
   const port = Number(process.env.FYSO_EXT_BIZ_PORT);
   if (!port) { console.error('FYSO_EXT_BIZ_PORT is required'); process.exit(1); }
   server().listen(port, '127.0.0.1', () => console.log(`Fyso Biz login on 127.0.0.1:${port}`));
+  // Older frameworks do not pass a socket; the panel then reads through Dagu.
+  const socket = process.env.FYSO_EXT_SOCKET;
+  if (socket) listenPrivate(require('./api.cjs').api(), socket).then(() => console.log(`Fyso Biz panel API on ${socket}`), error => { console.error(`Fyso Biz panel API: ${error.message}`); process.exit(1); });
 }

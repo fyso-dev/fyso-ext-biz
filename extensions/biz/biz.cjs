@@ -171,18 +171,32 @@ async function prepareTeam(mcp, teamId, {root = process.cwd(), scan} = {}) {
     teamB64:Buffer.from(proposed).toString('base64'), teamBaseB64:Buffer.from(current).toString('base64')};
 }
 module.exports.teams = teams; module.exports.prepareTeam = prepareTeam; module.exports.token = token;
+// How this project is connected, without contacting Biz.
+function statusOf(env = process.env) {
+  const state = env.BOT_FYSO_BIZ_TOKEN ? {connected:true, method:'token'} : {...auth.store({env}).status(), method:'oauth'};
+  let login = null; try { login = auth.addresses(env).login; } catch { /* no gateway address */ }
+  return {...state, url:auth.origin(env.FYSO_BIZ_URL || ''), login};
+}
+// With no department asked and only one available, open it in the same call.
+async function context(mcp, department = '') {
+  const first = await collect(mcp, department);
+  return !department && !first.department && first.departments.length === 1 ? collect(mcp, first.departments[0].id) : first;
+}
+// Teams carry the connection, so the page needs one read to show either.
+async function overview(env = process.env, open = async () => { const c = await token(env); return client(env.FYSO_BIZ_URL || '', c.token, fetch, {oauth:c.oauth}); }) {
+  const connection = statusOf(env);
+  if (!connection.connected) return {connection};
+  return {connection, ...(await teams(await open()))};
+}
+Object.assign(module.exports, {statusOf, context, overview, ERRORS});
 // `panel` reads the operation from the workflow parameter, from a fixed list only.
 const PANEL_OPS = ['status','logout','teams','team-prepare'];
 const commandOf = argv => argv[2] === 'panel' ? (PANEL_OPS.includes(process.env.FYSO_BIZ_OP) ? process.env.FYSO_BIZ_OP : 'status') : argv[2];
 if (require.main === module) (async()=>{
   const command = commandOf(process.argv);
-  if (command === 'status') {
-    const state = process.env.BOT_FYSO_BIZ_TOKEN ? {connected:true, method:'token'} : {...auth.store().status(), method:'oauth'};
-    let login = null; try { login = auth.addresses().login; } catch { /* no gateway address */ }
-    console.log(JSON.stringify({...state, url:auth.origin(process.env.FYSO_BIZ_URL || ''), login}));
-    return;
-  }
+  if (command === 'status') { console.log(JSON.stringify(statusOf())); return; }
   if (command === 'logout') { auth.store().logout(); console.log(JSON.stringify({connected:false})); return; }
+  if (command === 'teams') { console.log(JSON.stringify(await overview())); return; }
   const credential = await token();
   const mcp = client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth:credential.oauth});
   if (command === 'check') {
@@ -192,17 +206,16 @@ if (require.main === module) (async()=>{
     await mcp.call('contexto');
     console.log(JSON.stringify({ok:true,toolCount:tools.length}));
   } else if (command === 'vision') console.log(JSON.stringify(await vision(mcp,process.env.FYSO_BIZ_OBJECTIVE)));
-  else if (command === 'teams') console.log(JSON.stringify(await teams(mcp)));
   else if (command === 'team-prepare') {
     const {execFileSync} = require('node:child_process');
     console.log(JSON.stringify(await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
       scan:dir=>execFileSync('gitleaks',['dir',dir,'--no-banner','--redact'],{stdio:['ignore','ignore','inherit']})})));
   }
-  else console.log(JSON.stringify(await collect(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
+  else console.log(JSON.stringify(await context(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
 })().catch(error=>{
   const code = ERRORS.includes(error.message) ? error.message : 'connection_failed';
   console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : ''}`);
   // Panel actions read a structured failure from the output.
-  if (['teams','team-prepare','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot})}));
+  if (['teams','team-prepare','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
   else process.exitCode=1;
 });

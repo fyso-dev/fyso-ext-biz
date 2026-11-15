@@ -67,6 +67,7 @@
     "chooseDepartment": "Choose a department to see its objectives.",
     "updated": "Updated",
     "refresh": "Refresh",
+    "refreshing": "Refreshing…",
     "loading": "Loading…",
     "partial": "Some parts could not load. Refresh to retry.",
     "truncated": "Up to 100 items are shown per section.",

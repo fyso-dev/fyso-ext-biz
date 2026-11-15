@@ -67,6 +67,7 @@
     "chooseDepartment": "Elegí un departamento para ver sus objetivos.",
     "updated": "Actualizado",
     "refresh": "Actualizar",
+    "refreshing": "Actualizando…",
     "loading": "Cargando…",
     "partial": "Algunas partes no se pudieron cargar. Actualizá para reintentar.",
     "truncated": "Se muestran hasta 100 elementos por sección.",
