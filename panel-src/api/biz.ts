@@ -13,7 +13,7 @@ export type BizSnapshot = {
 export type BizPlan = {objectiveId:string; name:string; paused:boolean; pending:boolean; checkin:{status:string;expectedAt:string}|null; levers:(BizItem & {krId:string;description:string;hypothesis:string;assignment:string;requests:BizItem[]})[]; decisions:BizItem[]; truncated:boolean};
 
 export type BizStatus = {connected:boolean; method?:'token'|'oauth'; connectedAt?:string; url?:string; login?:string|null; error?:string};
-export type BizTeam = {id:string; slug:string; name:string; description:string; version:number|null; agents:number|null; skills:number|null};
+export type BizTeam = {id:string; slug:string; name:string; description:string; version:number|null; agents:number|null; skills:number|null; localVersion:number|null};
 export type BizTeams = {teams:BizTeam[]; error?:string};
-export type BizTeamPrepared = {team:{id:string;slug:string;nombre:string;version:number}; bots:string[]; skills:string[]; commit:string|null; teamB64:string; teamBaseB64:string; error?:string; bot?:string};
+export type BizTeamPrepared = {team:{id:string;slug:string;nombre:string;version:number}; bots:{name:string;title:string}[]; skills:string[]; commit:string|null; teamB64:string; teamBaseB64:string; error?:string; bot?:string};
 export type BotsPlan = {plan:string[]; created:number; changed:number; deleted:number; removalRevision?:string};

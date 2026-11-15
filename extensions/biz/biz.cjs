@@ -138,22 +138,36 @@ async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
   return {token:await auth.store({env}).accessToken(), oauth:true};
 }
-async function teams(mcp) {
+// Teams already in this project, from the provenance each import commits.
+function imported(root = process.cwd()) {
+  const fs = require('node:fs'), path = require('node:path'), dir = path.join(root, 'project/bots/biz'), found = {};
+  let entries = [];
+  try { entries = fs.readdirSync(dir); } catch { return found; }
+  for (const entry of entries) {
+    try {
+      const source = JSON.parse(fs.readFileSync(path.join(dir, entry, 'source.json'), 'utf8'));
+      if (source?.equipo?.id) found[source.equipo.id] = {version:number(source.equipo.version)};
+    } catch { /* not an import */ }
+  }
+  return found;
+}
+async function teams(mcp, {root = process.cwd()} = {}) {
   await mcp.initialize();
   if (!(await mcp.tools()).some(t=>t.name === 'listar_equipos')) throw Error('teams_not_supported');
-  const result = await mcp.call('listar_equipos');
-  return {teams:list(result.equipos).slice(0,LIMIT).map(e=>({id:string(e.id), slug:string(e.slug), name:string(e.nombre), description:string(e.descripcion), version:number(e.version), agents:number(e.agentes), skills:number(e.skills)}))};
+  const result = await mcp.call('listar_equipos'), local = imported(root);
+  return {teams:list(result.equipos).slice(0,LIMIT).map(e=>({id:string(e.id), slug:string(e.slug), name:string(e.nombre), description:string(e.descripcion), version:number(e.version), agents:number(e.agentes), skills:number(e.skills),
+    localVersion:local[string(e.id)]?.version ?? null}))};
 }
 async function prepareTeam(mcp, teamId, {root = process.cwd(), scan} = {}) {
   if (!teamId || teamId.length > 200) throw Error('invalid_export');
   await mcp.initialize();
   if (!(await mcp.tools()).some(t=>t.name === 'exportar_equipo')) throw Error('teams_not_supported');
   const team = require('./team.cjs'), fs = require('node:fs'), path = require('node:path');
-  const imported = team.plan(await mcp.call('exportar_equipo', {equipo_id:teamId}));
+  const plan = team.plan(await mcp.call('exportar_equipo', {equipo_id:teamId}));
   const current = fs.readFileSync(path.join(root, 'project/bots/team.yaml'), 'utf8');
-  const proposed = team.proposeTeam(current, imported);
-  const commit = team.writeFiles(imported, {root, scan});
-  return {team:{...imported.source.equipo}, bots:imported.bots.map(b=>b.name), skills:imported.skillNames, commit,
+  const proposed = team.proposeTeam(current, plan);
+  const commit = team.writeFiles(plan, {root, scan});
+  return {team:{...plan.source.equipo}, bots:plan.bots.map(b=>({name:b.name, title:b.title})), skills:plan.skillNames, commit,
     teamB64:Buffer.from(proposed).toString('base64'), teamBaseB64:Buffer.from(current).toString('base64')};
 }
 module.exports.teams = teams; module.exports.prepareTeam = prepareTeam; module.exports.token = token;

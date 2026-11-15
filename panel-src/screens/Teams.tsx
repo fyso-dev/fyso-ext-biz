@@ -1,74 +1,100 @@
-import { useState } from "@fyso/panel";
+import { useEffect, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
-import { useDaguAction, useStore } from "@fyso/panel";
+import { useDaguAction, useStore, External } from "@fyso/panel";
 import type { BizTeam, BizTeams, BizTeamPrepared, BotsPlan } from "../api/biz";
 
+type Applied = {created:number;changed:number;deleted:number;commit:string};
+
 /**
- * Download a Biz team: Biz writes the souls and skills (committed on their own),
- * then the framework's bots preview and apply review and commit the team file.
+ * Agent teams from Fyso Business. Downloading writes the team's instructions and
+ * skills (their own commit); the framework's bots preview/apply adds the bots.
  */
-export function Teams() {
+export function Teams({bizUrl}:{bizUrl?:string}) {
   const {t} = useTranslation();
   const s = useStore();
   const list = useDaguAction<BizTeams>(s.backend, "ext-biz-team", "result");
   const prepare = useDaguAction<BizTeamPrepared>(s.backend, "ext-biz-team", "result");
   const preview = useDaguAction<BotsPlan>(s.backend, "fyso-bots-plan", "plan");
-  const apply = useDaguAction<{created:number;changed:number;deleted:number;commit:string}>(s.backend, "fyso-bots-apply", "apply");
+  const apply = useDaguAction<Applied>(s.backend, "fyso-bots-apply", "apply");
   const [teams, setTeams] = useState<BizTeam[]>();
-  const [selected, setSelected] = useState<BizTeamPrepared>();
+  const [active, setActive] = useState<string>();
+  const [prepared, setPrepared] = useState<BizTeamPrepared>();
   const [plan, setPlan] = useState<BotsPlan>();
-  const [error, setError] = useState("");
-  const [done, setDone] = useState<string>();
+  const [error, setError] = useState<{team?:string; text:string}>();
+  const [done, setDone] = useState<{team:string; applied:Applied}>();
 
-  const error_ = (code?:string, bot?:string) => setError(t(`biz.teamErrors.${code}`, {defaultValue:t("biz.teamErrors.connection_failed"), bot}));
+  const fail = (team:string|undefined, code?:string, bot?:string) =>
+    setError({team, text:t(`biz.teamErrors.${code}`, {defaultValue:t("biz.teamErrors.connection_failed"), bot})});
   const load = async () => {
-    setError(""); setDone(undefined); setSelected(undefined); setPlan(undefined);
+    setError(undefined);
     const result = await list.start({FYSO_BIZ_OP:"teams"});
-    if (!result || result.error || !Array.isArray(result.teams)) { error_(result?.error); return; }
+    if (!result || result.error || !Array.isArray(result.teams)) { fail(undefined, result?.error); return; }
     setTeams(result.teams);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(()=>{ void load(); }, []);
+
+  const reset = () => { setActive(undefined); setPrepared(undefined); setPlan(undefined); };
   const download = async (team:BizTeam) => {
-    setError(""); setDone(undefined); setSelected(undefined); setPlan(undefined);
-    const prepared = await prepare.start({FYSO_BIZ_OP:"team-prepare", FYSO_BIZ_TEAM:team.id});
-    if (!prepared || prepared.error || !prepared.teamB64) { error_(prepared?.error, prepared?.bot); return; }
-    setSelected(prepared);
-    const reviewed = await preview.start({TEAM_B64:prepared.teamB64, TEAM_BASE_B64:prepared.teamBaseB64});
-    if (!reviewed || !Array.isArray(reviewed.plan)) { setError(t("biz.teamErrors.preview")); return; }
-    setPlan(reviewed);
+    reset(); setError(undefined); setDone(undefined); setActive(team.id);
+    const result = await prepare.start({FYSO_BIZ_OP:"team-prepare", FYSO_BIZ_TEAM:team.id});
+    if (!result || result.error || !result.teamB64) { setActive(undefined); fail(team.id, result?.error, result?.bot); return; }
+    const reviewed = await preview.start({TEAM_B64:result.teamB64, TEAM_BASE_B64:result.teamBaseB64});
+    if (!reviewed || !Array.isArray(reviewed.plan)) { setActive(undefined); fail(team.id, "preview"); return; }
+    setPrepared(result); setPlan(reviewed);
   };
   const confirm = async () => {
-    if (!selected || !plan) return;
-    setError("");
-    const result = await apply.start({TEAM_B64:selected.teamB64, TEAM_BASE_B64:selected.teamBaseB64, REMOVAL_REVISION:plan.removalRevision ?? ""});
-    if (!result || typeof result.commit !== "string") { setError(t("biz.teamErrors.apply")); return; }
-    setDone(result.commit.slice(0, 7)); setPlan(undefined); setSelected(undefined);
-    s.reload();
+    if (!prepared || !plan || !active) return;
+    setError(undefined);
+    const result = await apply.start({TEAM_B64:prepared.teamB64, TEAM_BASE_B64:prepared.teamBaseB64, REMOVAL_REVISION:plan.removalRevision ?? ""});
+    if (!result || typeof result.commit !== "string") { fail(active, "apply"); return; }
+    setDone({team:active, applied:result}); reset();
+    s.reload(); void load();
   };
   const busy = [list, prepare, preview, apply].some(a=>a.phase === "running");
+  const preparing = prepare.phase === "running" || preview.phase === "running";
 
-  return <section className="observ-section">
-    <div className="row"><h2 className="section-title grow">{t("biz.teams")}</h2>
-      <button type="button" className="btn btn-ghost" disabled={busy} onClick={()=>void load()}>{t(teams ? "biz.teamsRefresh" : "biz.teamsLoad")}</button></div>
-    <p className="mute">{t("biz.teamsDescription")}</p>
-    {list.phase === "running" && <p role="status">{t("biz.teamsLoading")}</p>}
-    {error && <div className="banner banner-down" role="alert">{error}</div>}
-    {done && <p className="banner" role="status">{t("biz.teamApplied", {commit:done})}</p>}
-    {teams && !teams.length && <p>{t("biz.teamsEmpty")}</p>}
-    {teams && teams.length > 0 && <div className="card"><ul className="list">{teams.map(team=><li className="row" key={team.id}>
-      <span className="grow"><strong>{team.name}</strong>{team.description && <span className="mute"> · {team.description}</span>}</span>
-      <span className="mute">{t("biz.teamCounts", {agents:team.agents ?? 0, skills:team.skills ?? 0, version:team.version ?? 0})}</span>
-      <button type="button" className="btn btn-ghost" disabled={busy} onClick={()=>void download(team)}>{t("biz.teamDownload")}</button>
-    </li>)}</ul></div>}
-    {(prepare.phase === "running" || preview.phase === "running") && <p role="status">{t("biz.teamPreparing")}</p>}
-    {selected && plan && <article className="card biz-onboarding">
-      <h3>{t("biz.teamPreview", {name:selected.team.nombre, version:selected.team.version})}</h3>
-      <p>{t("biz.teamBots")}: {selected.bots.join(", ") || "—"}</p>
-      <p>{t("biz.teamSkills")}: {selected.skills.join(", ") || "—"}</p>
-      <p className="mute">{t("biz.teamPlanCounts", {created:plan.created, changed:plan.changed, deleted:plan.deleted})}</p>
-      {plan.plan.length > 0 && <pre className="biz-plan">{plan.plan.join("\n")}</pre>}
-      <p className="mute">{t("biz.teamLocal")}</p>
-      <div className="row"><button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void confirm()}>{t(apply.phase === "running" ? "biz.teamApplying" : "biz.teamApply")}</button>
-        <button type="button" className="btn btn-ghost" disabled={busy} onClick={()=>{setSelected(undefined);setPlan(undefined);}}>{t("biz.teamCancel")}</button></div>
-    </article>}
-  </section>;
+  if (!teams) return <div className="card empty">
+    {list.phase === "failed" || error ? <><p role="alert">{error?.text ?? t("biz.teamErrors.connection_failed")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></>
+      : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
+  </div>;
+  if (!teams.length) return <div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
+    <h3>{t("biz.teamsEmptyTitle")}</h3><p className="mute">{t("biz.teamsEmpty")}</p>
+    {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}
+  </div>;
+
+  return <div className="biz-stack">
+    {error && !error.team && <div className="banner banner-down" role="alert">{error.text}</div>}
+    <div className="connector-grid">{teams.map(team=>{
+      const state = team.localVersion === null ? "new" : (team.version ?? 0) > team.localVersion ? "update" : "current";
+      const open = active === team.id;
+      return <article className={`card connector-card biz-team${open ? " biz-team-open" : ""}`} key={team.id}>
+        <div className="connector-heading">
+          <div className="connector-app-title"><span className="avatar biz-team-mark" aria-hidden="true">{team.name.trim().charAt(0).toUpperCase()}</span><h3>{team.name}</h3></div>
+          {state !== "new" && <span className={`pill ${state === "update" ? "pill-warn" : "pill-ok"}`}>{t(state === "update" ? "biz.teamUpdate" : "biz.teamCurrent")}</span>}
+        </div>
+        {team.description && <p className="mute">{team.description}</p>}
+        <div className="biz-chips"><span className="pill pill-surface">{t("biz.agentsCount", {count:team.agents ?? 0})}</span><span className="pill pill-surface">{t("biz.skillsCount", {count:team.skills ?? 0})}</span></div>
+        {done?.team === team.id && <p className="biz-success" role="status">✓ {t("biz.teamApplied", {count:done.applied.created + done.applied.changed})}</p>}
+        {error?.team === team.id && <p className="biz-error" role="alert">{error.text}</p>}
+        {open && preparing && <p role="status" className="mute">{t("biz.teamPreparing")}</p>}
+        {open && prepared && plan && <div className="biz-preview">
+          <p><strong>{t("biz.previewTitle")}</strong></p>
+          <ul className="biz-bots">{prepared.bots.map(bot=><li key={bot.name}><span className="avatar" aria-hidden="true">{bot.name.charAt(0).toUpperCase()}</span><span><strong>{bot.name}</strong>{bot.title && <><br/><span className="mute">{bot.title}</span></>}</span></li>)}</ul>
+          {prepared.skills.length > 0 && <p className="mute">{t("biz.previewSkills", {skills:prepared.skills.join(", ")})}</p>}
+          {plan.created + plan.changed + plan.deleted === 0 ? <p className="mute">{t("biz.previewNoChanges")}</p>
+            : <p className="mute">{t("biz.previewSummary", {created:plan.created, changed:plan.changed, deleted:plan.deleted})}</p>}
+          <details className="biz-details"><summary>{t("biz.previewDetails")}</summary><pre>{plan.plan.join("\n")}</pre></details>
+        </div>}
+        <div className="connector-actions">
+          {open && prepared && plan ? <>
+            <button type="button" className="btn btn-pri" disabled={busy || plan.created + plan.changed + plan.deleted === 0} onClick={()=>void confirm()}>{t(apply.phase === "running" ? "biz.teamApplying" : "biz.teamApply")}</button>
+            <button type="button" className="btn btn-soft" disabled={apply.phase === "running"} onClick={reset}>{t("biz.teamCancel")}</button>
+          </> : <button type="button" className={`btn ${state === "current" ? "btn-soft" : "btn-pri"}`} disabled={busy} onClick={()=>void download(team)}>
+            {t(open && preparing ? "biz.teamPreparingShort" : state === "new" ? "biz.teamDownload" : state === "update" ? "biz.teamUpdateAction" : "biz.teamReview")}</button>}
+        </div>
+      </article>;
+    })}</div>
+    <p className="note">{t("biz.teamsFootnote")}</p>
+  </div>;
 }
