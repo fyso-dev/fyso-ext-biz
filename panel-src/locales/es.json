@@ -126,6 +126,17 @@
     "partnerPending": "Se está preparando tu asistente de negocio.",
     "partnerOpen": "Hablar con Biz Partner",
     "scope": "Todo lo que ves acá se lee de Fyso Business con la cuenta conectada; nada se modifica desde esta página.",
-    "previewTeam": "Agentes de este equipo:"
+    "previewTeam": "Agentes de este equipo:",
+    "tabWork": "Trabajo",
+    "workError": "No pudimos consultar el trabajo. Probá de nuevo más tarde.",
+    "workEnabled": "Envío automático a: {{target}}",
+    "workDisabled": "El envío automático está desactivado.",
+    "workScope": "Solo se envían solicitudes asignadas expresamente a este proyecto. Un envío incierto requiere revisión.",
+    "workAvailable": "Solicitudes disponibles",
+    "workEmpty": "No hay solicitudes asignadas pendientes.",
+    "workHistory": "Envíos recientes",
+    "workHistoryEmpty": "Todavía no hay envíos.",
+    "workSent": "Enviado",
+    "workUncertain": "Estado incierto: revisá la conversación antes de actuar"
   }
 }

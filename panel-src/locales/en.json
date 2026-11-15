@@ -126,6 +126,17 @@
     "partnerPending": "Your business assistant is being prepared.",
     "partnerOpen": "Talk to Biz Partner",
     "scope": "Everything here is read from Fyso Business with the connected account; nothing is changed from this page.",
-    "previewTeam": "Agents in this team:"
+    "previewTeam": "Agents in this team:",
+    "tabWork": "Work",
+    "workError": "Could not load work. Try again later.",
+    "workEnabled": "Automatic delivery to: {{target}}",
+    "workDisabled": "Automatic delivery is disabled.",
+    "workScope": "Only requests explicitly assigned to this project are delivered. An uncertain delivery requires review.",
+    "workAvailable": "Available requests",
+    "workEmpty": "There are no pending assigned requests.",
+    "workHistory": "Recent deliveries",
+    "workHistoryEmpty": "No deliveries yet.",
+    "workSent": "Sent",
+    "workUncertain": "Uncertain: inspect the conversation before acting"
   }
 }

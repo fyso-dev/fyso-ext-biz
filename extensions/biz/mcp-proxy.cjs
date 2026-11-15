@@ -8,7 +8,7 @@ const biz = require('./biz.cjs');
 /**
  * The only Biz tools bots may see or call. Everything else is hidden from
  * tools/list and refused on tools/call. Add a tool here only when it reads, or
- * when it is part of the agent work cycle on a request (ADR 0104/0110/0116).
+ * when it is part of the agent work cycle or an explicitly permitted proposal.
  */
 const ALLOWED = new Set([
   // Reads.
@@ -18,6 +18,8 @@ const ALLOWED = new Set([
   // Agent work cycle: pull, take, report, prove, close.
   'solicitudes_disponibles', 'tomar_solicitud', 'soltar_solicitud', 'registrar_avance', 'subir_evidencia',
   'cerrar_solicitud', 'crear_nota',
+  // Proposals remain subject to Biz's own authorization and human decisions.
+  'crear_solicitud', 'guardar_plan_objetivo',
 ]);
 const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 // JSON-RPC: method not found, invalid params, internal error.
@@ -61,14 +63,19 @@ async function handle(message, relay) {
       const asked = params?.protocolVersion;
       return reply({protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0], capabilities: {tools: {}},
         serverInfo: {name: 'fyso-biz', version: '0.3.0'},
-        instructions: 'Fyso Business, under this project\'s agent identity. Read tools and the request work cycle only.'});
+        instructions: 'Fyso Business, under this project\'s agent identity. Reads, proposals and the request work cycle are available; decisions stay with a person.'});
     }
     if (method === 'ping') return reply({});
     if (method === 'tools/list') return reply(await listTools(relay, params?.cursor ? {cursor: params.cursor} : {}));
     if (method === 'tools/call') {
       const name = params?.name;
       if (typeof name !== 'string' || !ALLOWED.has(name)) {
-        return fail(INVALID, `Tool not available to project bots: ${String(name).slice(0, 100)}. This proxy allows only reads and the request work cycle; decisions stay with a person in Fyso Business.`);
+        return fail(INVALID, `Tool not available to project bots: ${String(name).slice(0, 100)}. This proxy allows reads, selected proposals and the request work cycle; decisions stay with a person in Fyso Business.`);
+      }
+      // Cloud requests are authorized and queued by Biz in the same call.
+      // Do not let a proposal bypass the person's execution decision.
+      if (name === 'crear_solicitud' && params.arguments?.ejecutor === 'fyso_cloud') {
+        return fail(INVALID, 'Cloud execution requires a person in Fyso Business.');
       }
       return reply(await relay('tools/call', {name, arguments: params.arguments || {}}));
     }

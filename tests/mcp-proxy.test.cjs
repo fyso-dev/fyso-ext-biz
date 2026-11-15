@@ -16,8 +16,8 @@ function relay() {
 }
 
 test('the allow-list holds reads and the work cycle, never person-side decisions', () => {
-  for (const name of ['solicitudes_disponibles', 'tomar_solicitud', 'soltar_solicitud', 'registrar_avance', 'subir_evidencia', 'cerrar_solicitud', 'crear_nota', 'ver_solicitud', 'contexto']) assert.ok(proxy.ALLOWED.has(name), name);
-  for (const name of ['aprobar_palanca', 'aceptar_entrega', 'autorizar_ejecucion', 'responder_decision', 'pedir_cambios', 'crear_solicitud', 'cancelar_solicitud', 'ejecutar_accion', 'eliminar_kpi']) assert.ok(!proxy.ALLOWED.has(name), name);
+  for (const name of ['solicitudes_disponibles', 'tomar_solicitud', 'soltar_solicitud', 'registrar_avance', 'subir_evidencia', 'cerrar_solicitud', 'crear_nota', 'crear_solicitud', 'guardar_plan_objetivo', 'ver_solicitud', 'contexto']) assert.ok(proxy.ALLOWED.has(name), name);
+  for (const name of ['aprobar_palanca', 'aceptar_entrega', 'autorizar_ejecucion', 'responder_decision', 'pedir_cambios', 'cancelar_solicitud', 'ejecutar_accion', 'eliminar_kpi']) assert.ok(!proxy.ALLOWED.has(name), name);
 });
 
 test('answers initialize locally and lists only allowed tools', async () => {
@@ -26,9 +26,12 @@ test('answers initialize locally and lists only allowed tools', async () => {
   assert.equal(init.result.protocolVersion, '2025-03-26');
   assert.deepEqual(init.result.capabilities, {tools: {}});
   assert.equal(r.calls.length, 0);
+  const cloud = await proxy.handle({jsonrpc: '2.0', id: 31, method: 'tools/call', params: {name: 'crear_solicitud', arguments: {ejecutor: 'fyso_cloud'}}}, r);
+  assert.equal(cloud.error.code, -32602);
+  assert.equal(r.calls.length, 0);
   assert.equal(await proxy.handle({jsonrpc: '2.0', method: 'notifications/initialized'}, r), null);
   const list = await proxy.handle({jsonrpc: '2.0', id: 2, method: 'tools/list'}, r);
-  assert.deepEqual(list.result.tools.map(t => t.name), ['contexto', 'tomar_solicitud']);
+  assert.deepEqual(list.result.tools.map(t => t.name), ['contexto', 'tomar_solicitud', 'crear_solicitud']);
 });
 
 test('refuses hidden tools without contacting Biz and relays allowed calls unchanged', async () => {

@@ -39,8 +39,9 @@ Bots and coding agents load the `fyso-biz` MCP server from `.mcp.json`. It is a 
 
 - reads: `contexto`, `buscar_contexto`, `como_trabajar_en_fyso`, `explicar_kpi`, `obtener_alineacion`, `vision_objetivo`, `listar_objetivos`, `listar_solicitudes`, `listar_checkins`, `listar_historial_kpi`, `listar_equipos`, `ver_solicitud`, `ver_entrega`, `ver_nota`;
 - the request work cycle: `solicitudes_disponibles`, `tomar_solicitud`, `soltar_solicitud`, `registrar_avance`, `subir_evidencia`, `cerrar_solicitud`, `crear_nota`.
+- proposals: `crear_solicitud`, `guardar_plan_objetivo`. Cloud execution through `crear_solicitud` is blocked because Biz authorizes and queues it immediately.
 
-Every other tool is hidden from `tools/list` and refused on `tools/call` with a JSON-RPC error. Person-side decisions (approving palancas, authorizing execution, creating requests, accepting deliveries) stay in Biz. Biz does not push work: a bot finds it with `solicitudes_disponibles`. The personal-token path goes through the same proxy and allow-list.
+Every other tool is hidden from `tools/list` and refused on `tools/call` with a JSON-RPC error. Person-side decisions (approving palancas, authorizing execution, accepting deliveries) stay in Biz. Biz does not push work: a bot finds it with `solicitudes_disponibles`. The personal-token path goes through the same proxy and allow-list.
 
 ## Download an agent team
 

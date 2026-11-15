@@ -28,7 +28,7 @@ Biz has no per-tool scope: the same grant could call person-side decision tools 
 
 - answers `initialize` and `ping` itself and relays `tools/list` and `tools/call` to Biz with `biz.token()` (the personal token when set, else the OAuth access token, refreshed under the store's lock);
 - reconnects when the credential changes and retries once after a 401/403, which Biz returns before running anything; other failures are not retried, so a call is never executed twice;
-- exposes only the tools in `ALLOWED` (one list in `mcp-proxy.cjs`: reads plus the work cycle). Others are filtered from `tools/list` and refused on `tools/call` with JSON-RPC error `-32602` without contacting Biz.
+- exposes only the tools in `ALLOWED` (one list in `mcp-proxy.cjs`: reads, selected proposals and the work cycle). Others are filtered from `tools/list` and refused on `tools/call` with JSON-RPC error `-32602` without contacting Biz.
 
 Add a tool to `ALLOWED` only when it reads, or when it belongs to the agent's own work on a request.
 
