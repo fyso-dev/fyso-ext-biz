@@ -61,7 +61,14 @@
       "secret_detected": "The team seems to contain a password or key. Nothing was brought in.",
       "invalid_team_file": "Could not read the project's agent list.",
       "preview": "We could not prepare the preview.",
-      "apply": "We could not add the team. Try again."
+      "apply": "We could not add the team. Try again.",
+      "templates_not_supported": "Update the project's framework to publish departments.",
+      "publish_not_supported": "Your Fyso Business cannot publish teams yet.",
+      "unknown_department": "That department is not in OpenMausBot. Apply the Bots changes and try again.",
+      "version_conflict": "Someone published another version in Biz meanwhile. Check again.",
+      "conflict": "The department changed here and in Biz. Choose which one stays.",
+      "no_package": "This team has no full template.",
+      "departamento_requerido": "Fyso Business requires an organization department to publish."
     },
     "department": "Department",
     "selectDepartment": "Choose a department",
@@ -137,6 +144,31 @@
     "workHistory": "Recent deliveries",
     "workHistoryEmpty": "No deliveries yet.",
     "workSent": "Sent",
-    "workUncertain": "Uncertain: inspect the conversation before acting"
+    "workUncertain": "Uncertain: inspect the conversation before acting",
+    "syncTitle": "This project's departments",
+    "syncIntro": "Publish a department to Fyso Business as a template and keep it in sync. When both sides changed, you choose which one stays.",
+    "syncLoading": "Checking departments…",
+    "syncEmpty": "This project has no departments yet. Create them in Bots.",
+    "syncRefresh": "Check",
+    "syncStates": {
+      "unpublished": "Not published",
+      "synced": "In sync",
+      "pull": "A new version is in Biz",
+      "publish": "Local changes not published",
+      "conflict": "Changed on both sides",
+      "pending_apply": "Pulled, not applied yet",
+      "absent": "Not in the project"
+    },
+    "syncPublish": "Publish to Biz",
+    "syncPublishChanges": "Publish changes",
+    "syncPull": "Pull version {{version}}",
+    "syncApplyPulled": "Review and apply",
+    "syncKeepBiz": "Pull from Biz",
+    "syncKeepMine": "Publish mine",
+    "syncConflictHint": "Pulling from Biz replaces your local version (it stays in git history). Publishing yours creates a new version in Biz.",
+    "syncPublishing": "Publishing…",
+    "syncPublished": "Published as version {{version}}.",
+    "syncNotSupported": "Your Fyso Business cannot publish teams yet.",
+    "syncVersion": "Version {{version}} in Biz"
   }
 }

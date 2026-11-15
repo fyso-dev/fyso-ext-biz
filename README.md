@@ -57,6 +57,19 @@ The extension contributes its own tab/page through `extensions/biz/pages/overvie
 
 After installation and once services are available, its connection hook creates **Biz Partner** through native Bot Architect plan/apply. It uses an offered model, project-root MCP access, business instructions, `ask` approval and computer off. Reconnection reuses the owned bot without overwriting customizations or duplicating it. A collision with an unrelated bot fails safely.
 
+## Publish and synchronize departments
+
+With a framework that supports department templates (D82) and a Fyso Business with `publicar_equipo`, the **Teams** tab lists this project's departments (OpenMausBot teams) with their sync state. *Publish to Biz* sends the department as the framework's native package (`omb-team/1`: shared instructions, bots with soul, model, approval and skills, and group chats); another project downloads it from the same tab with its full configuration. `project/biz-teams.json` records, per department, the Biz team, its version and the package digest at the last publish or pull, and each publish or pull commits it.
+
+| Local change | New version in Biz | Synchronize |
+|---|---|---|
+| no | no | in sync |
+| no | yes | pull it: review the plan, then apply |
+| yes | no | publish a new version |
+| yes | yes | stops: *Pull from Biz* (local edits stay in git history) or *Publish mine* |
+
+Nothing merges concurrent edits. Credentials, memory and conversations never travel. See the framework's `docs/team-templates.md`.
+
 ## Updates and removal
 
 ```sh

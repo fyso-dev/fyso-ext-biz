@@ -61,7 +61,14 @@
       "secret_detected": "El equipo parece contener una contraseña o clave. No se trajo nada.",
       "invalid_team_file": "No se pudo leer la lista de agentes del proyecto.",
       "preview": "No pudimos preparar la vista previa.",
-      "apply": "No pudimos agregar el equipo. Probá de nuevo."
+      "apply": "No pudimos agregar el equipo. Probá de nuevo.",
+      "templates_not_supported": "Actualizá el framework del proyecto para publicar departamentos.",
+      "publish_not_supported": "Tu Fyso Business todavía no permite publicar equipos.",
+      "unknown_department": "No encontramos ese departamento en OpenMausBot. Aplicá los cambios de Bots y volvé a intentar.",
+      "version_conflict": "Alguien publicó otra versión en Biz mientras tanto. Revisá de nuevo.",
+      "conflict": "El departamento cambió acá y en Biz. Elegí cuál queda.",
+      "no_package": "Este equipo no tiene una plantilla completa.",
+      "departamento_requerido": "Fyso Business pide elegir un departamento de la organización para publicar."
     },
     "department": "Departamento",
     "selectDepartment": "Elegí un departamento",
@@ -137,6 +144,31 @@
     "workHistory": "Envíos recientes",
     "workHistoryEmpty": "Todavía no hay envíos.",
     "workSent": "Enviado",
-    "workUncertain": "Estado incierto: revisá la conversación antes de actuar"
+    "workUncertain": "Estado incierto: revisá la conversación antes de actuar",
+    "syncTitle": "Departamentos de este proyecto",
+    "syncIntro": "Publicá un departamento en Fyso Business como plantilla y mantenelo sincronizado. Si cambió en los dos lados, elegís cuál queda.",
+    "syncLoading": "Revisando los departamentos…",
+    "syncEmpty": "Este proyecto todavía no tiene departamentos. Crealos en Bots.",
+    "syncRefresh": "Revisar",
+    "syncStates": {
+      "unpublished": "Sin publicar",
+      "synced": "Sincronizado",
+      "pull": "Hay una versión nueva en Biz",
+      "publish": "Cambios locales sin publicar",
+      "conflict": "Cambió en los dos lados",
+      "pending_apply": "Falta aplicar lo traído",
+      "absent": "No está en el proyecto"
+    },
+    "syncPublish": "Publicar en Biz",
+    "syncPublishChanges": "Publicar cambios",
+    "syncPull": "Traer versión {{version}}",
+    "syncApplyPulled": "Revisar y aplicar",
+    "syncKeepBiz": "Traer de Biz",
+    "syncKeepMine": "Publicar lo mío",
+    "syncConflictHint": "Traer de Biz reemplaza tu versión local (queda en el historial de git). Publicar lo tuyo crea una versión nueva en Biz.",
+    "syncPublishing": "Publicando…",
+    "syncPublished": "Publicado como versión {{version}}.",
+    "syncNotSupported": "Tu Fyso Business todavía no permite publicar equipos.",
+    "syncVersion": "Versión {{version}} en Biz"
   }
 }
