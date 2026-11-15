@@ -10,13 +10,13 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
   if (!token || /[\r\n]/.test(token)) throw Error('missing_token');
   let id = 0, session, protocol = '2025-03-26';
   async function rpc(method, params, notification = false) {
-    let response;
+    let response; const requestId = notification ? undefined : ++id;
     try {
       response = await transport(url, {method:'POST', redirect:'error', signal:AbortSignal.timeout(30000), headers:{
         'Content-Type':'application/json', Accept:'application/json, text/event-stream',
         Authorization:`Bearer ${token}`, ...(session ? {'Mcp-Session-Id':session} : {}),
         'MCP-Protocol-Version':protocol,
-      }, body:JSON.stringify({jsonrpc:'2.0', ...(!notification && {id:++id}), method, params})});
+      }, body:JSON.stringify({jsonrpc:'2.0', ...(!notification && {id:requestId}), method, params})});
     } catch { throw Error('connection_failed'); }
     if (!response.ok) throw Error(response.status === 401 || response.status === 403 ? 'access_denied' : 'remote_unavailable');
     session = response.headers.get('mcp-session-id') || session;
@@ -34,14 +34,15 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
           const data = frame.split(/\r?\n/).filter(l => l.startsWith('data:')).map(l => l.slice(5).trimStart()).join('\n');
           if (!data) continue;
           let message; try { message = JSON.parse(data); } catch { throw Error('invalid_response'); }
-          if (message.id === id) { await reader.cancel(); return unwrap(message); }
+          if (message.id === requestId) { await reader.cancel(); return unwrap(message); }
         }
       }
     }
     try { return unwrap(JSON.parse(text)); } catch(e) { if (e.message === 'remote_error') throw e; throw Error('invalid_response'); }
   }
   const unwrap = message => {
-    if (message.error) throw Error('remote_error');
+    // The JSON-RPC error stays attached for callers that relay it (mcp-proxy.cjs).
+    if (message.error) throw Object.assign(Error('remote_error'), {rpc:message.error});
     if (!('result' in message)) throw Error('invalid_response');
     return message.result;
   };
@@ -52,6 +53,8 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
       protocol = result.protocolVersion;
       await rpc('notifications/initialized', {}, true);
     },
+    /** One raw JSON-RPC request, for callers that relay results unchanged. */
+    request:(method, params) => rpc(method, params),
     async tools() {
       const all = []; let cursor;
       for (let page=0;page<20;page++) {
@@ -132,7 +135,7 @@ function normalizeVision(data) {
 }
 module.exports = {client, collect, endpoint, vision, normalizeVision};
 const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
-  'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','uncommitted_changes','secret_detected'];
+  'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};

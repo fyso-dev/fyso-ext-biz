@@ -1,1 +1,0 @@
-{"mcpServers":{"fyso-biz":{"type":"http","url":"{{ biz_url }}/api/mcp","headers":{"Authorization":"Bearer ${BOT_FYSO_BIZ_TOKEN}"}}}}
