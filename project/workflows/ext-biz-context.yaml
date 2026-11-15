@@ -1,6 +1,6 @@
 description: Read scoped Fyso Biz context without changing business records
 working_dir: ${FYSO_ROOT}
-max_active_runs: 1
+max_active_runs: 4
 params:
   - FYSO_BIZ_DEPARTMENT: ""
 steps:

@@ -1,0 +1,5 @@
+# Fyso Biz login (OAuth callback) behind the project's web login.
+http://biz.{$FYSO_WEB_DOMAIN}:{$FYSO_HTTP_PORT} {
+	import fyso_login
+	reverse_proxy 127.0.0.1:{$FYSO_EXT_BIZ_PORT}
+}

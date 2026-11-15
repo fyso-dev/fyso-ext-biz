@@ -3,22 +3,30 @@ _answers_file: .copier-answers.ext-biz.yml
 _templates_suffix: .slotjinja
 _external_data:
   framework_api: framework/panel/extension-api.json
+  project: .copier-answers.yml
 framework_api:
   type: int
   default: "{{ _external_data.framework_api.version }}"
-  choices: [1]
-  help: Required framework panel extension API version
+  help: Framework panel extension API version (v1 or later)
   validator: >-
-    {% if framework_api != 1 or (_external_data.framework_api.version is defined and _external_data.framework_api.version != 1) %}
-    This extension requires Fyso panel extension API v1. Upgrade the framework first.
+    {% if framework_api < 1 or (_external_data.framework_api.version is defined and _external_data.framework_api.version < 1) %}
+    This extension requires Fyso panel extension API v1 or later. Upgrade the framework first.
+    {% endif %}
+extension_port:
+  type: int
+  default: "{{ _external_data.project.port_base + 10 }}"
+  help: Port in the project's extension block (Fyso Biz login)
+  validator: >-
+    {% if _external_data.project.port_base is defined and (extension_port < _external_data.project.port_base + 10 or extension_port > _external_data.project.port_base + 19) %}
+    Choose a port in the project's extension block (+10 through +19).
     {% endif %}
 biz_url:
   type: str
   default: https://fyso.biz
-  help: Fyso Biz organization origin (HTTPS)
+  help: Fyso Biz organization origin (HTTPS; HTTP only for a local Biz on localhost)
   validator: >-
-    {% if not (biz_url | regex_search('^https://[a-zA-Z0-9.-]+(:[0-9]+)?$')) %}
-    Use an HTTPS origin without a path or credentials.
+    {% if not (biz_url | regex_search('^(https://[a-zA-Z0-9.-]+|http://(localhost|127\\.0\\.0\\.1))(:[0-9]+)?$')) %}
+    Use an HTTPS origin without a path or credentials (HTTP is accepted only for localhost).
     {% endif %}
 _exclude:
   - copier.yml

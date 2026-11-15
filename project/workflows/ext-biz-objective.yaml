@@ -1,6 +1,6 @@
 description: Read objective vision, levers and open decisions from Fyso Biz
 working_dir: ${FYSO_ROOT}
-max_active_runs: 1
+max_active_runs: 4
 params:
   - FYSO_BIZ_OBJECTIVE: ""
 steps:

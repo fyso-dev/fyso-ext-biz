@@ -1,12 +1,12 @@
 // Thin read-only MCP adapter. Business rules and authorization remain in Biz.
 const LIMIT = 100;
-function endpoint(origin) {
-  const url = new URL(origin);
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !['/', ''].includes(url.pathname)) throw Error('invalid_origin');
-  return `${url.origin}/api/mcp`;
+const auth = require('./auth.cjs');
+// Personal `fyb_` tokens use /api/mcp; OAuth grants use the provider's /mcp route.
+function endpoint(origin, oauth = false) {
+  return `${auth.origin(origin)}${oauth ? '/mcp' : '/api/mcp'}`;
 }
-function client(origin, token, transport = fetch) {
-  const url = endpoint(origin);
+function client(origin, token, transport = fetch, {oauth = false} = {}) {
+  const url = endpoint(origin, oauth);
   if (!token || /[\r\n]/.test(token)) throw Error('missing_token');
   let id = 0, session, protocol = '2025-03-26';
   async function rpc(method, params, notification = false) {
@@ -131,14 +131,91 @@ function normalizeVision(data) {
   };
 }
 module.exports = {client, collect, endpoint, vision, normalizeVision};
+const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
+  'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','uncommitted_changes','secret_detected'];
+// A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
+async function token(env = process.env) {
+  if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
+  return {token:await auth.store({env}).accessToken(), oauth:true};
+}
+// Teams already in this project, from the provenance each import commits.
+function imported(root = process.cwd()) {
+  const fs = require('node:fs'), path = require('node:path'), dir = path.join(root, 'project/bots/biz'), found = {};
+  let entries = [];
+  try { entries = fs.readdirSync(dir); } catch { return found; }
+  for (const entry of entries) {
+    try {
+      const source = JSON.parse(fs.readFileSync(path.join(dir, entry, 'source.json'), 'utf8'));
+      if (source?.equipo?.id) found[source.equipo.id] = {version:number(source.equipo.version)};
+    } catch { /* not an import */ }
+  }
+  return found;
+}
+async function teams(mcp, {root = process.cwd()} = {}) {
+  await mcp.initialize();
+  if (!(await mcp.tools()).some(t=>t.name === 'listar_equipos')) throw Error('teams_not_supported');
+  const result = await mcp.call('listar_equipos'), local = imported(root);
+  return {teams:list(result.equipos).slice(0,LIMIT).map(e=>({id:string(e.id), slug:string(e.slug), name:string(e.nombre), description:string(e.descripcion), version:number(e.version), agents:number(e.agentes), skills:number(e.skills),
+    localVersion:local[string(e.id)]?.version ?? null}))};
+}
+async function prepareTeam(mcp, teamId, {root = process.cwd(), scan} = {}) {
+  if (!teamId || teamId.length > 200) throw Error('invalid_export');
+  await mcp.initialize();
+  if (!(await mcp.tools()).some(t=>t.name === 'exportar_equipo')) throw Error('teams_not_supported');
+  const team = require('./team.cjs'), fs = require('node:fs'), path = require('node:path');
+  const plan = team.plan(await mcp.call('exportar_equipo', {equipo_id:teamId}));
+  const current = fs.readFileSync(path.join(root, 'project/bots/team.yaml'), 'utf8');
+  const proposed = team.proposeTeam(current, plan);
+  const commit = team.writeFiles(plan, {root, scan});
+  return {team:{...plan.source.equipo}, bots:plan.bots.map(b=>({name:b.name, title:b.title})), skills:plan.skillNames, commit,
+    teamB64:Buffer.from(proposed).toString('base64'), teamBaseB64:Buffer.from(current).toString('base64')};
+}
+module.exports.teams = teams; module.exports.prepareTeam = prepareTeam; module.exports.token = token;
+// How this project is connected, without contacting Biz.
+function statusOf(env = process.env) {
+  const state = env.BOT_FYSO_BIZ_TOKEN ? {connected:true, method:'token'} : {...auth.store({env}).status(), method:'oauth'};
+  let login = null; try { login = auth.addresses(env).login; } catch { /* no gateway address */ }
+  return {...state, url:auth.origin(env.FYSO_BIZ_URL || ''), login};
+}
+// With no department asked and only one available, open it in the same call.
+async function context(mcp, department = '') {
+  const first = await collect(mcp, department);
+  return !department && !first.department && first.departments.length === 1 ? collect(mcp, first.departments[0].id) : first;
+}
+// Teams carry the connection, so the page needs one read to show either.
+async function overview(env = process.env, open = async () => { const c = await token(env); return client(env.FYSO_BIZ_URL || '', c.token, fetch, {oauth:c.oauth}); }) {
+  const connection = statusOf(env);
+  if (!connection.connected) return {connection};
+  return {connection, ...(await teams(await open()))};
+}
+Object.assign(module.exports, {statusOf, context, overview, ERRORS});
+// `panel` reads the operation from the workflow parameter, from a fixed list only.
+const PANEL_OPS = ['status','logout','teams','team-prepare'];
+const commandOf = argv => argv[2] === 'panel' ? (PANEL_OPS.includes(process.env.FYSO_BIZ_OP) ? process.env.FYSO_BIZ_OP : 'status') : argv[2];
 if (require.main === module) (async()=>{
-  const mcp = client(process.env.FYSO_BIZ_URL || '', process.env.BOT_FYSO_BIZ_TOKEN);
-  if (process.argv[2] === 'check') {
+  const command = commandOf(process.argv);
+  if (command === 'status') { console.log(JSON.stringify(statusOf())); return; }
+  if (command === 'logout') { auth.store().logout(); console.log(JSON.stringify({connected:false})); return; }
+  if (command === 'teams') { console.log(JSON.stringify(await overview())); return; }
+  const credential = await token();
+  const mcp = client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth:credential.oauth});
+  if (command === 'check') {
     await mcp.initialize();
     const tools = await mcp.tools();
     if (!tools.some(t=>t.name === 'contexto')) throw Error('context_not_supported');
     await mcp.call('contexto');
     console.log(JSON.stringify({ok:true,toolCount:tools.length}));
-  } else if (process.argv[2] === 'vision') console.log(JSON.stringify(await vision(mcp,process.env.FYSO_BIZ_OBJECTIVE)));
-  else console.log(JSON.stringify(await collect(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
-})().catch(error=>{console.error(`Fyso Biz: ${['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch'].includes(error.message) ? error.message : 'connection_failed'}`);process.exitCode=1;});
+  } else if (command === 'vision') console.log(JSON.stringify(await vision(mcp,process.env.FYSO_BIZ_OBJECTIVE)));
+  else if (command === 'team-prepare') {
+    const {execFileSync} = require('node:child_process');
+    console.log(JSON.stringify(await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
+      scan:dir=>execFileSync('gitleaks',['dir',dir,'--no-banner','--redact'],{stdio:['ignore','ignore','inherit']})})));
+  }
+  else console.log(JSON.stringify(await context(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
+})().catch(error=>{
+  const code = ERRORS.includes(error.message) ? error.message : 'connection_failed';
+  console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : ''}`);
+  // Panel actions read a structured failure from the output.
+  if (['teams','team-prepare','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
+  else process.exitCode=1;
+});
