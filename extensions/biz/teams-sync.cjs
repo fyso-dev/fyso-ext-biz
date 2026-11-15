@@ -8,7 +8,7 @@ const fs = require('node:fs'), path = require('node:path'), {execFileSync} = req
 
 const STATE = 'project/biz-teams.json';
 const ERRORS = ['templates_not_supported', 'publish_not_supported', 'unknown_department', 'not_published',
-  'version_conflict', 'conflict', 'no_package', 'pending_apply', 'uncommitted_changes'];
+  'version_conflict', 'conflict', 'no_package', 'pending_apply', 'uncommitted_changes', 'unexpected_response'];
 
 /** The framework's department-template module (D82), or a clear error on an older framework. */
 function templates(root) {
@@ -104,10 +104,13 @@ async function publish({mcp, root, tpl = templates(root), department, department
     const code = ['version_conflict', 'departamento_requerido'].find(c => detail.includes(c));
     throw code ? Error(code) : error;
   }
-  const name = entry?.[0] ?? department;
-  state.departments[name] = {equipoId: String(result.id), version: Number(result.version), digest: exported.digest};
-  const commit = saveState(root, state, `biz: publish department ${name} v${result.version}`, git);
-  return {department: name, equipoId: String(result.id), version: Number(result.version), commit};
+  // Biz answers {equipo: {id, slug, nombre, version}, creado}.
+  const team = result?.equipo;
+  if (!team?.id || !Number.isInteger(Number(team.version))) throw Error('unexpected_response');
+  const name = entry?.[0] ?? department, version = Number(team.version);
+  state.departments[name] = {equipoId: String(team.id), version, digest: exported.digest};
+  const commit = saveState(root, state, `biz: publish department ${name} v${version}`, git);
+  return {department: name, equipoId: String(team.id), version, commit};
 }
 
 /**

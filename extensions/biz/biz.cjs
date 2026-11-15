@@ -137,7 +137,7 @@ function normalizeVision(data) {
 module.exports = {client, collect, endpoint, vision, normalizeVision};
 const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
   'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected',
-  'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido'];
+  'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido','unexpected_response'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};

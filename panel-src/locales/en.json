@@ -68,6 +68,7 @@
       "version_conflict": "Someone published another version in Biz meanwhile. Check again.",
       "conflict": "The department changed here and in Biz. Choose which one stays.",
       "no_package": "This team has no full template.",
+      "unexpected_response": "Fyso Business answered something this extension does not understand. Update the Fyso Biz extension.",
       "departamento_requerido": "Fyso Business requires an organization department to publish."
     },
     "department": "Department",

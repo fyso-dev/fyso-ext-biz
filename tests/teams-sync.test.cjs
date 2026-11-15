@@ -36,10 +36,10 @@ function biz(teams = {}) {
       if (name === 'listar_equipos') return {equipos: Object.entries(teams).map(([id, t]) => ({id, version: t.version}))};
       if (name === 'exportar_equipo') { const t = teams[args.equipo_id]; return {equipo: {id: args.equipo_id, version: t.version}, paquete: t.paquete}; }
       if (name === 'publicar_equipo') {
-        if (!args.equipo_id) { const id = `e${Object.keys(teams).length + 1}`; teams[id] = {version: 1, paquete: args.paquete}; return {id, version: 1}; }
+        if (!args.equipo_id) { const id = `e${Object.keys(teams).length + 1}`; teams[id] = {version: 1, paquete: args.paquete}; return {equipo: {id, version: 1}, creado: true}; }
         const t = teams[args.equipo_id];
         if (args.version_base !== t.version) throw Error(`version_conflict: current ${t.version}`);
-        t.version += 1; t.paquete = args.paquete; return {id: args.equipo_id, version: t.version};
+        t.version += 1; t.paquete = args.paquete; return {equipo: {id: args.equipo_id, version: t.version}, creado: false};
       }
       throw Error(`unexpected ${name}`);
     }};

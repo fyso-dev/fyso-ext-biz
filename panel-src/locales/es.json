@@ -68,6 +68,7 @@
       "version_conflict": "Alguien publicó otra versión en Biz mientras tanto. Revisá de nuevo.",
       "conflict": "El departamento cambió acá y en Biz. Elegí cuál queda.",
       "no_package": "Este equipo no tiene una plantilla completa.",
+      "unexpected_response": "Fyso Business respondió algo que esta extensión no entiende. Actualizá la extensión Fyso Biz.",
       "departamento_requerido": "Fyso Business pide elegir un departamento de la organización para publicar."
     },
     "department": "Departamento",
