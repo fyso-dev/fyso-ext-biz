@@ -1,6 +1,6 @@
 # Integration behavior
 
-This repository owns the Biz page, MCP adapter, connection hook and bot profile. The framework provides only generic static-page hosting, panel SDK v1, encrypted secrets, Dagu and native Bot Architect.
+This repository owns the Biz page, MCP adapter, connection hook and bot profile. The framework provides only generic static-page hosting, panel SDK v1 or later, encrypted secrets, extension processes and routes, Dagu, native Bot Architect and the bots plan/apply workflows. The OAuth login (`auth.cjs`, `gateway.cjs`) and the team import (`team.cjs`) belong to this extension.
 
 ## Native business reads
 
@@ -28,6 +28,6 @@ The page is trusted installed code on the authenticated project origin, not a se
 
 ## Compatibility and tests
 
-Copier reads `framework/panel/extension-api.json` through native external data. API v1 is required before initial installation. The compatibility validator tolerates the empty temporary destination Copier uses to render the previous tagged template during updates; tagged-upgrade tests exercise that path with the real Copier consumer.
+Copier reads `framework/panel/extension-api.json` through native external data. API v1 or later is required before initial installation. The compatibility validator tolerates the empty temporary destination Copier uses to render the previous tagged template during updates; tagged-upgrade tests exercise that path with the real Copier consumer.
 
 See the root [README](../README.md) for current commands, requirements and versioned installation. The initial integration evidence under `artifacts/` is a historical snapshot from before this repository was extracted. Unit tests cover the adapter and bot orchestration; packaging tests cover owned slots, unsupported hosts and native tag-to-tag upgrades.
