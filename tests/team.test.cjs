@@ -3,12 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), {execFileSync} = require('node:child_process');
 const team = require('../extensions/biz/team.cjs');
 const yaml = team.yamlModule();
+const parse = text => yaml.parse(text.replaceAll('${FYSO_ROOT}', '__R__'));
 
 const TEAM = `# Project bots.
 version: 1
 bots:
   - name: MausBot
     chief: true
+    soul: { file: \${FYSO_ROOT}/framework/bots/souls/chief.md }
     model: claude/claude-sonnet-5
   - name: Builder # keep this comment
     model: claude/claude-haiku-4-5
@@ -38,15 +40,16 @@ test('derives souls, skills and provenance under the team directory', () => {
 test('appends new bots with the local engine, keeps comments, and updates owned bots in place', () => {
   const first = team.proposeTeam(TEAM, team.plan(exported()), yaml);
   assert.match(first, /# keep this comment/);
-  const doc = yaml.parse(first);
+  assert.match(first, /soul: \{ file: \$\{FYSO_ROOT\}\/framework\/bots\/souls\/chief\.md \}/);
+  const doc = parse(first);
   const redactor = doc.bots.find(b => b.name === 'Redactor');
   assert.equal(redactor.model, 'claude/claude-haiku-4-5');
   assert.equal(redactor.approval, 'ask');
-  assert.deepEqual(redactor.soul, {file: '${FYSO_ROOT}/project/bots/biz/comercial/souls/redactor.md'});
-  assert.deepEqual(redactor.skills, [{file: '${FYSO_ROOT}/project/bots/biz/comercial/skills/tono-de-marca/SKILL.md'}]);
+  assert.deepEqual(redactor.soul, {file: '__R__/project/bots/biz/comercial/souls/redactor.md'});
+  assert.deepEqual(redactor.skills, [{file: '__R__/project/bots/biz/comercial/skills/tono-de-marca/SKILL.md'}]);
   // A local model choice survives; an agent retired in Biz leaves the declaration.
   const edited = first.replace(/(name: Redactor[\s\S]*?model: )claude\/claude-haiku-4-5/, '$1claude/claude-sonnet-5');
-  const second = yaml.parse(team.proposeTeam(edited, team.plan(exported({agentes: [exported().agentes[0]]})), yaml));
+  const second = parse(team.proposeTeam(edited, team.plan(exported({agentes: [exported().agentes[0]]})), yaml));
   assert.deepEqual(second.bots.map(b => b.name), ['MausBot', 'Builder', 'Redactor']);
   assert.equal(second.bots[2].model, 'claude/claude-sonnet-5');
 });

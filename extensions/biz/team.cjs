@@ -4,7 +4,7 @@
 // Only configuration travels; models, tools and approval stay local decisions.
 const fs = require('node:fs'), path = require('node:path'), {execFileSync} = require('node:child_process'), {createRequire} = require('node:module');
 
-const FORMAT = 'fyso-equipo/v1', ROOT_VAR = '${FYSO_ROOT}', TEAM = 'project/bots/team.yaml';
+const FORMAT = 'fyso-equipo/v1', ROOT_VAR = '${FYSO_ROOT}', MARKER = '__FYSO_PATH_ROOT__';
 const slug = value => String(value || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 const text = (value, max = 200000) => typeof value === 'string' ? value.slice(0, max) : '';
@@ -49,11 +49,15 @@ function plan(exported) {
 
 /** The proposed team file: owned bots updated in place, new ones appended, gone ones removed. */
 function proposeTeam(current, imported, yaml = yamlModule()) {
-  const doc = yaml.parseDocument(current);
+  // `${FYSO_ROOT}` opens a flow mapping in YAML (`soul: { file: ${FYSO_ROOT}/… }`);
+  // swap it for a plain marker while editing, as the framework's render-team does.
+  if (current.includes(MARKER)) throw Error('invalid_team_file');
+  const doc = yaml.parseDocument(current.replaceAll(ROOT_VAR, MARKER));
   if (doc.errors.length) throw Error('invalid_team_file');
   const bots = doc.get('bots');
   if (!yaml.isSeq(bots)) throw Error('invalid_team_file');
-  const prefix = `${ROOT_VAR}/${imported.dir}/`;
+  const prefix = `${MARKER}/${imported.dir}/`;
+  const local = file => file.replace(ROOT_VAR, MARKER);
   const soulOf = node => { const soul = node.get?.('soul'); return yaml.isMap(soul) ? String(soul.get('file') || '') : ''; };
   const owned = new Map(), others = new Set();
   for (const node of bots.items) {
@@ -70,7 +74,7 @@ function proposeTeam(current, imported, yaml = yamlModule()) {
   const wanted = new Set(imported.bots.map(bot => bot.name));
   bots.items = bots.items.filter(node => !(yaml.isMap(node) && owned.has(String(node.get('name'))) && !wanted.has(String(node.get('name')))));
   for (const bot of imported.bots) {
-    const fields = {...(bot.title && {title: bot.title}), soul: {file: bot.soul}, skills: imported.skills.map(file => ({file}))};
+    const fields = {...(bot.title && {title: bot.title}), soul: {file: local(bot.soul)}, skills: imported.skills.map(file => ({file: local(file)}))};
     const node = owned.get(bot.name);
     if (node) {
       if (!bot.title) node.delete('title');
@@ -79,7 +83,7 @@ function proposeTeam(current, imported, yaml = yamlModule()) {
       bots.items.push(doc.createNode({name: bot.name, ...(bot.title && {title: bot.title}), model, approval: 'ask', soul: fields.soul, skills: fields.skills}));
     }
   }
-  return doc.toString();
+  return doc.toString().replaceAll(MARKER, ROOT_VAR);
 }
 
 /** Replace the team's directory with the export's files and commit them on their own. */
