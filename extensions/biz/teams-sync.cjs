@@ -115,12 +115,23 @@ async function publish({mcp, root, tpl = templates(root), department, department
   return {department: name, equipoId: String(team.id), version, commit};
 }
 
+/** Agents (name, title) and skill names of a package, for the download preview. */
+function preview(pkg, yaml = require('./team.cjs').yamlModule()) {
+  let bots = [];
+  try {
+    const team = yaml.parse(pkg.team) || {};
+    bots = (Array.isArray(team.bots) ? team.bots : []).map(bot => ({name: String(bot?.name ?? ''), title: String(bot?.title ?? '')})).filter(bot => bot.name);
+  } catch { /* validated already; an unreadable file only leaves the list empty */ }
+  const skills = [...new Set((pkg.skills || []).map(skill => String(skill.path).split('/').at(-2)))].sort();
+  return {bots, skills};
+}
+
 /**
  * Pull a Biz team's package: write its files, commit them, and return the proposed team
  * file for the panel's review (the person applies it). Pulling over local changes needs
  * the person's explicit choice (`overwrite`).
  */
-async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = false, git}) {
+async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = false, git, yaml}) {
   await mcp.initialize();
   const exported = await mcp.call('exportar_equipo', {equipo_id: equipoId});
   const pkg = exported?.paquete;
@@ -137,7 +148,9 @@ async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = fal
   state.departments[name] = {equipoId: String(equipoId), version: Number(exported.equipo?.version), digest: tpl.digest(pkg), pending: true};
   const commit = saveState(root, state, `biz: pull department ${name} v${exported.equipo?.version}`, git);
   return {department: name, version: Number(exported.equipo?.version), commit, files: imported.commit,
+    // The panel's download preview: the Biz team, the agents and the skills that arrive.
+    team: exported.equipo, ...preview(pkg, yaml),
     teamB64: Buffer.from(imported.proposedTeamYaml).toString('base64'), teamBaseB64: Buffer.from(imported.currentTeamYaml).toString('base64')};
 }
 
-module.exports = {STATE, ERRORS, decide, readState, saveState, status, publish, pull, templates};
+module.exports = {STATE, ERRORS, decide, readState, saveState, status, publish, pull, preview, templates};

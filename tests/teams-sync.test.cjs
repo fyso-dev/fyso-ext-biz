@@ -88,7 +88,13 @@ test('pulling writes the package for review, waits for apply, then settles as sy
   const {root} = project();
   const mcp = biz({e7: {version: 4, paquete: {formato: 'omb-team/1', departamento: 'Marketing', team: 'team m4', skills: []}}});
   const local = {};
-  const pulled = await sync.pull({mcp, root, tpl: templates(local), equipoId: 'e7'});
+  const yaml = {parse: () => ({bots: [{name: 'Estratega', title: 'Planifica'}, {name: 'Redactor'}]})};
+  const pulled = await sync.pull({mcp, root, tpl: templates(local), equipoId: 'e7', yaml});
+  // The panel's download preview needs the agents and skills (Teams.tsx).
+  assert.deepEqual(pulled.bots, [{name: 'Estratega', title: 'Planifica'}, {name: 'Redactor', title: ''}]);
+  assert.deepEqual(pulled.skills, []);
+  assert.deepEqual(pulled.team, {id: 'e7', version: 4});
+  assert.deepEqual(sync.preview({team: '', skills: [{path: 'skills/estratega/calendario/SKILL.md'}, {path: 'skills/redactor/calendario/SKILL.md'}]}, yaml).skills, ['calendario']);
   assert.equal(Buffer.from(pulled.teamB64, 'base64').toString(), 'proposed Marketing');
   assert.deepEqual(sync.readState(root).departments.Marketing, {equipoId: 'e7', version: 4, digest: 'm4', pending: true});
   local.Marketing = 'old';
