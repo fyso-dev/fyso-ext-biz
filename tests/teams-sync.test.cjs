@@ -112,3 +112,30 @@ test('a Biz team without a package and an older framework fail with clear codes'
   await assert.rejects(sync.pull({mcp: biz({e1: {version: 1}}), root, tpl: templates({}), equipoId: 'e1'}), {message: 'no_package'});
   assert.throws(() => sync.templates(root), {message: 'templates_not_supported'});
 });
+
+test('dirty staged or unstaged state prevents publish, pull and automatic settlement', async () => {
+  const {root, git} = project(), local = {Ventas:'v1'}, mcp = biz();
+  await sync.publish({mcp, root, tpl:templates(local), department:'Ventas'});
+  const file=path.join(root,'project/biz-teams.json');
+  const original=fs.readFileSync(file,'utf8');
+  fs.writeFileSync(file,original+' '); git('add','project/biz-teams.json');
+  fs.writeFileSync(file,original+'  ');
+  const before=git('diff','--cached','--','project/biz-teams.json');
+  const count=mcp.calls.length;
+  await assert.rejects(sync.publish({mcp,root,tpl:templates(local),department:'Ventas'}),/uncommitted_changes/);
+  await assert.rejects(sync.pull({mcp,root,tpl:templates(local),equipoId:'e1'}),/uncommitted_changes/);
+  assert.equal(mcp.calls.length,count); assert.equal(fs.readFileSync(file,'utf8'),original+'  ');
+  assert.equal(git('diff','--cached','--','project/biz-teams.json'),before);
+});
+
+test('settling a pull refuses to overwrite a dirty sync file', async () => {
+  const {root,git}=project(), local={Ventas:'v1'}, mcp=biz();
+  await sync.publish({mcp,root,tpl:templates(local),department:'Ventas'});
+  const state=sync.readState(root);state.departments.Ventas.pending=true;
+  sync.saveState(root,state,'mark pending');
+  const file=path.join(root,'project/biz-teams.json'), before=fs.readFileSync(file,'utf8')+' ';
+  fs.writeFileSync(file,before);
+  await assert.rejects(sync.status({mcp,root,tpl:templates(local)}),/uncommitted_changes/);
+  assert.equal(fs.readFileSync(file,'utf8'),before);
+  assert.equal(git('status','--porcelain','--','project/biz-teams.json').trim(),'M project/biz-teams.json');
+});

@@ -53,7 +53,7 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
     {listFailed && !loading ? <><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></>
       : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
   </div>;
-  const departments = <Departments version={synced} onPull={(id, overwrite)=>void download({id}, overwrite)} />;
+  const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} />;
   if (!teams.length) return <div className="biz-stack">{departments}<div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
     <h3>{t("biz.teamsEmptyTitle")}</h3><p className="mute">{t("biz.teamsEmpty")}</p>
     {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}

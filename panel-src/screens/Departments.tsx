@@ -10,7 +10,7 @@ const TONE:Record<BizDepartmentSync["state"],string> = {synced:"pill-ok", pull:"
  * native package; pulling goes through the team download below (`onPull`), which shows the
  * plan and applies it. When both sides changed, the person chooses which one stays.
  */
-export function Departments({onPull, version}:{onPull:(equipoId:string, overwrite:boolean)=>void; version:number}) {
+export function Departments({onPull, onPublished, version}:{onPull:(equipoId:string, overwrite:boolean)=>void; onPublished:()=>Promise<void>; version:number}) {
   const {t} = useTranslation();
   const s = useStore();
   const check = useDaguAction<BizSyncStatus>(s.backend, "ext-biz-team", "result");
@@ -30,6 +30,7 @@ export function Departments({onPull, version}:{onPull:(equipoId:string, overwrit
     const result = await publish.start({FYSO_BIZ_OP:"team-publish", FYSO_BIZ_LOCAL_DEPARTMENT:department, FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
     setActive(undefined);
     setMessage(result && !result.error ? {department, ok:true, text:t("biz.syncPublished", {version:result.version})} : {department, ok:false, text:error(result?.error)});
+    if (result && !result.error) await onPublished();
     void load();
   };
   const busy = check.phase === "running" || publish.phase === "running";
