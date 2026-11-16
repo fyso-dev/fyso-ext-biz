@@ -143,25 +143,13 @@ async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
   return {token:await auth.store({env}).accessToken(), oauth:true};
 }
-// Teams already in this project, from the provenance each import commits.
-function imported(root = process.cwd()) {
-  const fs = require('node:fs'), path = require('node:path'), dir = path.join(root, 'project/bots/biz'), found = {};
-  let entries = [];
-  try { entries = fs.readdirSync(dir); } catch { return found; }
-  for (const entry of entries) {
-    try {
-      const source = JSON.parse(fs.readFileSync(path.join(dir, entry, 'source.json'), 'utf8'));
-      if (source?.equipo?.id) found[source.equipo.id] = {version:number(source.equipo.version)};
-    } catch { /* not an import */ }
-  }
-  return found;
-}
 async function teams(mcp, {root = process.cwd()} = {}) {
   await mcp.initialize();
   if (!(await mcp.tools()).some(t=>t.name === 'listar_equipos')) throw Error('teams_not_supported');
-  const result = await mcp.call('listar_equipos'), local = imported(root);
+  // Matched by Biz team id: synchronized departments and older downloads alike (teams-sync.cjs).
+  const result = await mcp.call('listar_equipos'), local = require('./teams-sync.cjs').links(root);
   return {teams:list(result.equipos).slice(0,LIMIT).map(e=>({id:string(e.id), slug:string(e.slug), name:string(e.nombre), description:string(e.descripcion), version:number(e.version), agents:number(e.agentes), skills:number(e.skills),
-    localVersion:local[string(e.id)]?.version ?? null}))};
+    localVersion:local[string(e.id)]?.version ?? null, department:local[string(e.id)]?.department ?? null}))};
 }
 async function prepareTeam(mcp, teamId, {root = process.cwd(), scan} = {}) {
   if (!teamId || teamId.length > 200) throw Error('invalid_export');
@@ -219,8 +207,12 @@ if (require.main === module) (async()=>{
     let pulled = null;
     try { pulled = await sync.pull({mcp, root:process.cwd(), equipoId:process.env.FYSO_BIZ_TEAM, overwrite}); }
     catch (error) { if (!['no_package','templates_not_supported'].includes(error.message)) throw error; }
-    console.log(JSON.stringify(pulled ? {...pulled, full:true} : await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
-      scan:dir=>execFileSync('gitleaks',['dir',dir,'--no-banner','--redact'],{stdio:['ignore','ignore','inherit']})})));
+    if (pulled) { console.log(JSON.stringify({...pulled, full:true})); return; }
+    const prepared = await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
+      scan:dir=>execFileSync('gitleaks',['dir',dir,'--no-banner','--redact'],{stdio:['ignore','ignore','inherit']})});
+    // Keep the sync state on the same Biz team id when it holds this department.
+    try { await sync.legacyPulled({root:process.cwd(), equipoId:prepared.team.id, version:prepared.team.version}); } catch { /* older framework: nothing to record */ }
+    console.log(JSON.stringify(prepared));
   }
   else if (command === 'team-sync') console.log(JSON.stringify(await sync.status({mcp, root:process.cwd()})));
   else if (command === 'team-publish') console.log(JSON.stringify(await sync.publish({mcp, root:process.cwd(),

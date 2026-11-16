@@ -59,7 +59,7 @@ After installation and once services are available, its connection hook creates 
 
 ## Publish and synchronize departments
 
-With a framework that supports department templates (D82) and a Fyso Business with `publicar_equipo`, the **Teams** tab lists this project's departments (OpenMausBot teams) with their sync state. *Publish to Biz* sends the department as the framework's native package (`omb-team/1`: shared instructions, bots with soul, model, approval and skills, and group chats); another project downloads it from the same tab with its full configuration. `project/biz-teams.json` records, per department, the Biz team, its version and the package digest at the last publish or pull, and each publish or pull commits it.
+With a framework that supports department templates (D82) and a Fyso Business with `publicar_equipo`, the **Teams** tab lists this project's departments (OpenMausBot teams) with their sync state. *Publish to Biz* sends the department as the framework's native package (`omb-team/1`: shared instructions, bots with soul, model, approval and skills, and group chats); another project downloads it from the same tab with its full configuration. `project/biz-teams.json` records, per department, the Biz team, its version and the package digest at the last publish or pull, and each publish or pull commits it. The Biz team id is the department's one identity: the team list and the sync list match by it, and a department downloaded before packages (its `source.json`) is recorded under its Biz team id the first time the sync list is read (`biz: link department …`), so publishing it adds a version to that team instead of creating another one.
 
 | Local change | New version in Biz | Synchronize |
 |---|---|---|

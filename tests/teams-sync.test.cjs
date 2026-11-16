@@ -112,3 +112,70 @@ test('a Biz team without a package and an older framework fail with clear codes'
   await assert.rejects(sync.pull({mcp: biz({e1: {version: 1}}), root, tpl: templates({}), equipoId: 'e1'}), {message: 'no_package'});
   assert.throws(() => sync.templates(root), {message: 'templates_not_supported'});
 });
+
+// A department downloaded from Biz before packages existed (team.cjs, fyso-equipo/v1).
+function legacy(root, git, {id = 'e9', version = 1, slug = 'equipo-comercial-local', department = 'Equipo comercial'} = {}) {
+  const dir = path.join(root, 'project/bots/biz', slug);
+  fs.mkdirSync(dir, {recursive: true});
+  fs.writeFileSync(path.join(dir, 'source.json'), JSON.stringify({formato: 'fyso-equipo/v1', equipo: {id, slug, nombre: `${department} (Biz)`, version}}));
+  fs.writeFileSync(path.join(dir, 'brief.md'), 'brief\n');
+  fs.mkdirSync(path.join(root, 'project/bots'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'project/bots/team.yaml'),
+    `version: 1\nteams:\n  - name: ${department}\n    brief: { file: \${FYSO_ROOT}/project/bots/biz/${slug}/brief.md }\n  - name: Otro\n    brief: hola\nbots: []\n`);
+  git('add', '.'); git('commit', '-qm', 'legacy import');
+}
+
+test('a department downloaded before packages keeps its Biz team: linked, listed, never published as a second team', async () => {
+  const {root, git} = project();
+  legacy(root, git);
+  const mcp = biz({e9: {version: 1}}), local = {'Equipo comercial': 'c1', Otro: 'o1'};
+  // Both screens see the same Biz team id.
+  assert.deepEqual(sync.links(root), {e9: {department: 'Equipo comercial', version: 1}});
+  const rows = (await sync.status({mcp, root, tpl: templates(local)})).departments;
+  assert.deepEqual(rows.find(d => d.department === 'Equipo comercial'), {department: 'Equipo comercial', equipoId: 'e9', version: 1, remoteVersion: 1, state: 'synced'});
+  assert.equal(rows.find(d => d.department === 'Otro').state, 'unpublished');
+  assert.deepEqual(sync.readState(root).departments['Equipo comercial'], {equipoId: 'e9', version: 1, digest: 'c1', legacy: true});
+  assert.match(git('log', '-1', '--format=%s'), /link department Equipo comercial to its Biz team/);
+  // A local change publishes a new version of the same Biz team.
+  local['Equipo comercial'] = 'c2';
+  assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments.find(d => d.department === 'Equipo comercial').state, 'publish');
+  const published = await sync.publish({mcp, root, tpl: templates(local), department: 'Equipo comercial'});
+  assert.deepEqual([published.equipoId, published.version], ['e9', 2]);
+  assert.deepEqual(Object.keys(mcp.teams), ['e9']);
+  assert.equal(mcp.calls.filter(([name, args]) => name === 'publicar_equipo' && !args.equipo_id).length, 0);
+  assert.equal(git('status', '--porcelain'), '');
+});
+
+test('publishing a never-checked older download goes to its Biz team too', async () => {
+  const {root, git} = project();
+  legacy(root, git, {version: 3});
+  const mcp = biz({e9: {version: 3}});
+  const published = await sync.publish({mcp, root, tpl: templates({'Equipo comercial': 'c1'}), department: 'Equipo comercial'});
+  assert.deepEqual([published.equipoId, published.version], ['e9', 4]);
+  assert.equal(mcp.calls.at(-1)[1].version_base, 3);
+});
+
+test('a newer older-style download waits for apply, then settles on the applied department', async () => {
+  const {root, git} = project();
+  legacy(root, git);
+  const mcp = biz({e9: {version: 2}}), local = {'Equipo comercial': 'c1'};
+  assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments[0].state, 'pull');
+  // team.cjs wrote version 2; the department has not been applied yet.
+  legacy(root, git, {version: 2});
+  await sync.legacyPulled({root, tpl: templates(local), equipoId: 'e9', version: 2});
+  assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments[0].state, 'pending_apply');
+  local['Equipo comercial'] = 'c-applied';
+  assert.equal((await sync.status({mcp, root, tpl: templates(local)})).departments[0].state, 'synced');
+  assert.deepEqual(sync.readState(root).departments['Equipo comercial'], {equipoId: 'e9', version: 2, digest: 'c-applied', legacy: true});
+  // Reviewing the same version again records nothing to wait for.
+  assert.equal(await sync.legacyPulled({root, tpl: templates(local), equipoId: 'e9', version: 2}), null);
+});
+
+test('a department renamed by a later download keeps its Biz team record', async () => {
+  const {root, git} = project();
+  legacy(root, git);
+  await sync.status({mcp: biz({e9: {version: 1}}), root, tpl: templates({'Equipo comercial': 'c1'})});
+  legacy(root, git, {department: 'Comercial'});
+  const rows = (await sync.status({mcp: biz({e9: {version: 1}}), root, tpl: templates({Comercial: 'c1'})})).departments;
+  assert.deepEqual(rows.map(d => [d.department, d.equipoId, d.state]), [['Comercial', 'e9', 'synced']]);
+});
