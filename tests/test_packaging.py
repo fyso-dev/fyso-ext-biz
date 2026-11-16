@@ -36,8 +36,10 @@ class Packaging(unittest.TestCase):
             self.assertIn('biz.{$FYSO_WEB_DOMAIN}', (project / 'extensions/biz/Caddyfile').read_text())
             self.assertIn('FYSO_EXT_BIZ_PORT = "6110"', (project / '.config/mise/conf.d/ext-biz.toml').read_text())
             mcp = json.loads((project / 'extensions/biz/mcp.json').read_text())
-            self.assertEqual(mcp['mcpServers']['fyso-biz']['headers']['Authorization'],
-                             'Bearer ${BOT_FYSO_BIZ_TOKEN}')
+            # Bots reach Biz through the local allow-list proxy; no credential in .mcp.json.
+            self.assertEqual(mcp['mcpServers']['fyso-biz'], {'type': 'stdio', 'command': 'framework/scripts/run-ext.sh',
+                             'args': ['biz', '--', 'node', 'extensions/biz/mcp-proxy.cjs']})
+            self.assertTrue((project / 'extensions/biz/mcp-proxy.cjs').is_file())
             for name in ['tests', 'scripts', 'panel-src', 'docs', 'artifacts', '.data', 'mise.toml', 'package.json']:
                 self.assertFalse((project / name).exists(), name)
 

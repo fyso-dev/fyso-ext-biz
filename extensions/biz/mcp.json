@@ -1,0 +1,1 @@
+{"mcpServers":{"fyso-biz":{"type":"stdio","command":"framework/scripts/run-ext.sh","args":["biz","--","node","extensions/biz/mcp-proxy.cjs"]}}}

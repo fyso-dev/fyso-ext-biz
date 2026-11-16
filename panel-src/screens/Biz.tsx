@@ -5,8 +5,9 @@ import type { BizOverview, BizSnapshot, BizStatus } from "../api/biz";
 import { forget, read, remember, remembered } from "../api/read";
 import { Teams } from "./Teams";
 import { Business } from "./Business";
+import { Work } from "./Work";
 
-type Tab = "teams" | "business";
+type Tab = "teams" | "business" | "work";
 
 export function Biz() {
   const {t} = useTranslation();
@@ -81,10 +82,11 @@ export function Biz() {
       <div className="seg biz-tabs" role="tablist" aria-label={t("biz.title")}>
         <button type="button" role="tab" aria-selected={tab === "teams"} aria-pressed={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
         <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
+        <button type="button" role="tab" aria-selected={tab === "work"} aria-pressed={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
       </div>
       {tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
-        : <Business onContext={setContext} />}
+        : tab === "business" ? <Business onContext={setContext} /> : <Work />}
       {connection.method === "token" && <aside className="card biz-partner">
         <span className="avatar" aria-hidden="true">B</span>
         <div className="grow"><strong>{t("biz.partnerTitle")}</strong><p className="hint">{t(bizBot ? "biz.partnerReady" : "biz.partnerPending")}</p></div>

@@ -1,0 +1,9 @@
+description: Deliver explicitly assigned Fyso Biz requests to the configured project agent
+working_dir: ${FYSO_ROOT}
+schedule: "*/5 * * * *"
+catchup_window: "1m"
+overlap_policy: skip
+max_active_runs: 1
+steps:
+  - id: dispatch
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/dispatch.cjs

@@ -41,6 +41,12 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
     }),
     'GET /context': query => withMcp(mcp => biz.context(mcp, query.get('department') || '')),
     'GET /objective': query => withMcp(mcp => biz.vision(mcp, query.get('id') || '')),
+    'GET /work': () => withMcp(async mcp => {
+      const result = await mcp.call('solicitudes_disponibles');
+      if (!Array.isArray(result.solicitudes) || typeof result.agente !== 'string') throw Error('invalid_response');
+      const available = result.solicitudes.filter(r => r.agenteDestino === result.agente).slice(0,100).map(r => ({id:r.id, title:r.titulo}));
+      return {...require('./dispatch.cjs').status(env), available};
+    }),
     'POST /logout': () => { auth.store({env}).logout(); reset(); return biz.statusOf(env); },
   };
   return async (req, res) => {

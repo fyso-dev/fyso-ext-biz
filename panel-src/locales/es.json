@@ -55,6 +55,7 @@
       "unsupported_format": "Este equipo usa un formato más nuevo. Actualizá la extensión Fyso Biz.",
       "invalid_export": "El equipo tiene agentes sin nombre o con nombres repetidos. Corregilo en Fyso Business.",
       "name_conflict": "Ya tenés un agente llamado «{{bot}}». Cambiale el nombre acá o en Fyso Business.",
+      "team_conflict": "Ya tenés un equipo o una sala llamada «{{bot}}». Cambiale el nombre acá o en Fyso Business.",
       "no_model": "El proyecto no tiene ningún agente con modelo para tomar como referencia.",
       "uncommitted_changes": "Hay cambios sin guardar en los archivos de este equipo. Guardalos en git y volvé a intentar.",
       "secret_detected": "El equipo parece contener una contraseña o clave. No se trajo nada.",
@@ -125,6 +126,17 @@
     "partnerPending": "Se está preparando tu asistente de negocio.",
     "partnerOpen": "Hablar con Biz Partner",
     "scope": "Todo lo que ves acá se lee de Fyso Business con la cuenta conectada; nada se modifica desde esta página.",
-    "previewTeam": "Agentes de este equipo:"
+    "previewTeam": "Agentes de este equipo:",
+    "tabWork": "Trabajo",
+    "workError": "No pudimos consultar el trabajo. Probá de nuevo más tarde.",
+    "workEnabled": "Envío automático a: {{target}}",
+    "workDisabled": "El envío automático está desactivado.",
+    "workScope": "Solo se envían solicitudes asignadas expresamente a este proyecto. Un envío incierto requiere revisión.",
+    "workAvailable": "Solicitudes disponibles",
+    "workEmpty": "No hay solicitudes asignadas pendientes.",
+    "workHistory": "Envíos recientes",
+    "workHistoryEmpty": "Todavía no hay envíos.",
+    "workSent": "Enviado",
+    "workUncertain": "Estado incierto: revisá la conversación antes de actuar"
   }
 }
