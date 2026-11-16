@@ -57,16 +57,20 @@ The extension contributes its own tab/page through `extensions/biz/pages/overvie
 
 After installation and once services are available, its connection hook creates **Biz Partner** through native Bot Architect plan/apply. It uses an offered model, project-root MCP access, business instructions, `ask` approval and computer off. Reconnection reuses the owned bot without overwriting customizations or duplicating it. A collision with an unrelated bot fails safely.
 
-## Publish and synchronize departments
+## Publish, synchronize and propose changes to departments
 
-With a framework that supports department templates (D82) and a Fyso Business with `publicar_equipo`, the **Teams** tab lists this project's departments (OpenMausBot teams) with their sync state. *Publish to Biz* sends the department as the framework's native package (`omb-team/1`: shared instructions, bots with soul, model, approval and skills, and group chats); another project downloads it from the same tab with its full configuration. `project/biz-teams.json` records, per department, the Biz team, its version and the package digest at the last publish or pull, and each publish or pull commits it. The Biz team id is the department's one identity: the team list and the sync list match by it, and a department downloaded before packages (its `source.json`) is recorded under its Biz team id the first time the sync list is read (`biz: link department …`), so publishing it adds a version to that team instead of creating another one.
+With a framework that supports department templates (D82), the **Teams** tab lists this project's departments (OpenMausBot teams) with their sync state. **Fyso Business is the source of truth**: its teams flow down one way. A department with no Biz team yet is published once (*Publish to Biz*, `publicar_equipo`), which creates the team. After that a local change is never written back: *Send proposal* sends it as a change proposal (`proponer_cambio_equipo`, Biz ADR 0127) and a person accepts or rejects it on Biz. An accepted proposal is a new Biz version that comes down through the normal pull; a rejected one is shown with its reason. The panel reads the decision again every minute while a proposal waits, and on every *Check*.
+
+A department travels as the framework's native package (`omb-team/1`: shared instructions, bots with soul, model, approval and skills, and group chats). `project/biz-teams.json` records, per department and keyed by the Biz team's name, the Biz team id, its version, the package digest at the last publish or pull, its bots and the last proposal; every change to it is committed. The Biz team id is the department's one identity, and a department downloaded before packages (its `source.json`) is recorded under its Biz team id the first time the sync list is read (`biz: link department …`).
 
 | Local change | New version in Biz | Synchronize |
 |---|---|---|
 | no | no | in sync |
 | no | yes | pull it: review the plan, then apply |
-| yes | no | publish a new version |
-| yes | yes | stops: *Pull from Biz* (local edits stay in git history) or *Publish mine* |
+| yes | no | *Send proposal*; then *proposal sent*, *rejected* (with the reason) or, once accepted, pull |
+| yes | yes | stops: *Pull from Biz* (local edits stay in git history) or *Propose mine* on the current Biz version |
+
+**The Biz name always wins.** On every sync the record takes the Biz team's current name, with or without a new version. A department renamed locally (found again by its bots) is shown under its Biz name: *Restore* prepares the team file with the Biz name for review and apply, and *Propose* sends the new name as a proposal. Design and the Biz contract: [docs/proposals.md](docs/proposals.md).
 
 Nothing merges concurrent edits. Credentials, memory and conversations never travel. See the framework's `docs/team-templates.md`.
 

@@ -137,7 +137,8 @@ function normalizeVision(data) {
 module.exports = {client, collect, endpoint, vision, normalizeVision};
 const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
   'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected',
-  'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido','unexpected_response'];
+  'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido','unexpected_response',
+  'proposals_not_supported','linked_to_biz','not_renamed','not_published'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
@@ -183,7 +184,7 @@ async function overview(env = process.env, open = async () => { const c = await 
 }
 Object.assign(module.exports, {statusOf, context, overview, ERRORS});
 // `panel` reads the operation from the workflow parameter, from a fixed list only.
-const PANEL_OPS = ['status','logout','teams','team-prepare','team-sync','team-publish'];
+const PANEL_OPS = ['status','logout','teams','team-prepare','team-sync','team-publish','team-propose','team-rename'];
 const commandOf = argv => argv[2] === 'panel' ? (PANEL_OPS.includes(process.env.FYSO_BIZ_OP) ? process.env.FYSO_BIZ_OP : 'status') : argv[2];
 const sync = require('./teams-sync.cjs');
 if (require.main === module) (async()=>{
@@ -191,6 +192,8 @@ if (require.main === module) (async()=>{
   if (command === 'status') { console.log(JSON.stringify(statusOf())); return; }
   if (command === 'logout') { auth.store().logout(); console.log(JSON.stringify({connected:false})); return; }
   if (command === 'teams') { console.log(JSON.stringify(await overview())); return; }
+  // Restoring the Biz name only reads the project: no Biz session needed.
+  if (command === 'team-rename') { console.log(JSON.stringify(sync.restoreName({root:process.cwd(), equipoId:process.env.FYSO_BIZ_TEAM || ''}))); return; }
   const credential = await token();
   const mcp = client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth:credential.oauth});
   if (command === 'check') {
@@ -216,12 +219,15 @@ if (require.main === module) (async()=>{
   }
   else if (command === 'team-sync') console.log(JSON.stringify(await sync.status({mcp, root:process.cwd()})));
   else if (command === 'team-publish') console.log(JSON.stringify(await sync.publish({mcp, root:process.cwd(),
-    department:process.env.FYSO_BIZ_LOCAL_DEPARTMENT || '', overwrite:process.env.FYSO_BIZ_OVERWRITE === '1'})));
+    department:process.env.FYSO_BIZ_LOCAL_DEPARTMENT || ''})));
+  else if (command === 'team-propose') console.log(JSON.stringify(await sync.propose({mcp, root:process.cwd(),
+    department:process.env.FYSO_BIZ_LOCAL_DEPARTMENT || '', equipoId:process.env.FYSO_BIZ_TEAM || '',
+    message:process.env.FYSO_BIZ_MESSAGE || '', overwrite:process.env.FYSO_BIZ_OVERWRITE === '1'})));
   else console.log(JSON.stringify(await context(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
 })().catch(error=>{
   const code = ERRORS.includes(error.message) ? error.message : 'connection_failed';
   console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : ''}`);
   // Panel actions read a structured failure from the output.
-  if (['teams','team-prepare','team-sync','team-publish','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
+  if (['teams','team-prepare','team-sync','team-publish','team-propose','team-rename','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
   else process.exitCode=1;
 });
