@@ -1,0 +1,9 @@
+description: Configure the project agent that receives Biz work
+working_dir: ${FYSO_ROOT}
+max_active_runs: 1
+params:
+  - FYSO_BIZ_TARGET: ""
+steps:
+  - id: configure
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/dispatch-config.cjs
+    output: RESULT

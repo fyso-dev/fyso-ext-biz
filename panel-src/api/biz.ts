@@ -18,4 +18,9 @@ export type BizTeams = {teams:BizTeam[]; error?:string};
 /** One read for the page: how the project is connected and, when it is, the teams. */
 export type BizOverview = {connection?:BizStatus; teams?:BizTeam[]; error?:string};
 export type BizTeamPrepared = {team:{id:string;slug:string;nombre:string;version:number}; bots:{name:string;title:string}[]; skills:string[]; commit:string|null; teamB64:string; teamBaseB64:string; error?:string; bot?:string};
+/** A department of this project and what synchronizing it with Biz would do (framework D82). */
+export type BizDepartmentSync = {department:string; equipoId:string|null; version:number|null; remoteVersion:number|null;
+  state:"absent"|"unpublished"|"synced"|"pull"|"publish"|"conflict"|"pending_apply"};
+export type BizSyncStatus = {publishSupported?:boolean; departments?:BizDepartmentSync[]; error?:string};
+export type BizPublished = {department:string; equipoId:string; version:number; commit:string|null; error?:string};
 export type BotsPlan = {plan:string[]; created:number; changed:number; deleted:number; removalRevision?:string};

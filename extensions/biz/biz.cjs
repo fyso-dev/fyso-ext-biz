@@ -67,7 +67,8 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
     },
     async call(name, args = {}) {
       const result = await rpc('tools/call', {name, arguments:args});
-      if (result.isError) throw Error('tool_denied');
+      // Keep Biz's own error code (for example `version_conflict`) for the caller, never as output.
+      if (result.isError) throw Object.assign(Error('tool_denied'), {detail:list(result.content).filter(c=>c.type === 'text').map(c=>String(c.text)).join('\n').slice(0,500)});
       if (result.structuredContent) return result.structuredContent;
       try { return JSON.parse(result.content.filter(c=>c.type === 'text').map(c=>c.text).join('\n')); }
       catch { throw Error('invalid_response'); }
@@ -135,7 +136,8 @@ function normalizeVision(data) {
 }
 module.exports = {client, collect, endpoint, vision, normalizeVision};
 const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
-  'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected'];
+  'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected',
+  'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido','unexpected_response'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
@@ -193,8 +195,9 @@ async function overview(env = process.env, open = async () => { const c = await 
 }
 Object.assign(module.exports, {statusOf, context, overview, ERRORS});
 // `panel` reads the operation from the workflow parameter, from a fixed list only.
-const PANEL_OPS = ['status','logout','teams','team-prepare'];
+const PANEL_OPS = ['status','logout','teams','team-prepare','team-sync','team-publish'];
 const commandOf = argv => argv[2] === 'panel' ? (PANEL_OPS.includes(process.env.FYSO_BIZ_OP) ? process.env.FYSO_BIZ_OP : 'status') : argv[2];
+const sync = require('./teams-sync.cjs');
 if (require.main === module) (async()=>{
   const command = commandOf(process.argv);
   if (command === 'status') { console.log(JSON.stringify(statusOf())); return; }
@@ -211,14 +214,22 @@ if (require.main === module) (async()=>{
   } else if (command === 'vision') console.log(JSON.stringify(await vision(mcp,process.env.FYSO_BIZ_OBJECTIVE)));
   else if (command === 'team-prepare') {
     const {execFileSync} = require('node:child_process');
-    console.log(JSON.stringify(await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
+    const overwrite = process.env.FYSO_BIZ_OVERWRITE === '1';
+    // A team published from a project carries the full native package (framework D82).
+    let pulled = null;
+    try { pulled = await sync.pull({mcp, root:process.cwd(), equipoId:process.env.FYSO_BIZ_TEAM, overwrite}); }
+    catch (error) { if (!['no_package','templates_not_supported'].includes(error.message)) throw error; }
+    console.log(JSON.stringify(pulled ? {...pulled, full:true} : await prepareTeam(mcp, process.env.FYSO_BIZ_TEAM, {
       scan:dir=>execFileSync('gitleaks',['dir',dir,'--no-banner','--redact'],{stdio:['ignore','ignore','inherit']})})));
   }
+  else if (command === 'team-sync') console.log(JSON.stringify(await sync.status({mcp, root:process.cwd()})));
+  else if (command === 'team-publish') console.log(JSON.stringify(await sync.publish({mcp, root:process.cwd(),
+    department:process.env.FYSO_BIZ_LOCAL_DEPARTMENT || '', overwrite:process.env.FYSO_BIZ_OVERWRITE === '1'})));
   else console.log(JSON.stringify(await context(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
 })().catch(error=>{
   const code = ERRORS.includes(error.message) ? error.message : 'connection_failed';
   console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : ''}`);
   // Panel actions read a structured failure from the output.
-  if (['teams','team-prepare','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
+  if (['teams','team-prepare','team-sync','team-publish','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
   else process.exitCode=1;
 });

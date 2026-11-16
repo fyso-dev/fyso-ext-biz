@@ -1,12 +1,8 @@
 # Project request dispatch (experimental)
 
-The scheduled workflow polls every five minutes, but is disabled until the project owner creates and versions `project/biz-dispatch.json`:
+The Work tab lets a person select a project bot and saves `project/biz-dispatch.json` through the `ext-biz-dispatch-config` Dagu workflow. The workflow checks the native bot ID on this project's explicit OMB port, refuses to overwrite uncommitted edits to the file and commits only that file. Select Disabled to stop new handoffs. The selected bot needs the project-root `fyso-biz` MCP and its skill; its native approval policy remains in force. The panel offers bots only because room turns in OpenMausBot 0.1.141 do not load the project's MCP servers.
 
-```json
-{"enabled": true, "kind": "bot", "target": "EXACT_NATIVE_BOT_ID"}
-```
-
-Use `kind: "room"` with its native channel ID for a room. **Prefer a bot:** with OpenMausBot 0.1.141 a room turn runs in the member's OpenMausBot workspace instead of its configured working directory, so the project MCP servers (`fyso`, `fyso-biz`) are not loaded and the member cannot take the request. A direct bot conversation uses the bot's working directory and works. Select an existing bot or room with access to the `fyso-biz` MCP and its skill. This setting authorizes that target to receive and attempt assigned work; its native approval policy still applies. The file belongs to the project and is never installed or overwritten by this extension. Set `enabled` to `false` to stop new handoffs. The workflow requires this project's explicit OMB port and never discovers a desktop instance.
+The same tab creates a request through the authenticated extension API using the connected project's Biz identity. Department is required; optionally choose an objective and its Key Result or an approved lever. Biz resolves a lever's department and Key Result itself. The form does not retry a failed creation: if the response is uncertain, inspect Biz before trying again. Business permissions remain those of the connected account.
 
 Only requests with `agenteDestino` exactly equal to the connected Biz identity are delivered. Requests available to any agent are intentionally excluded because another project could also see them. The bot takes the request through Biz, follows its authorization, reports progress and closes or releases it. The history records the chosen bot or room, not which room member performed work. All bots share the OAuth identity; they should sign progress with their bot name. An OMB acknowledgement means only that the handoff was accepted, not that work completed.
 

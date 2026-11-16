@@ -2,6 +2,7 @@ import { useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, External } from "@fyso/panel";
 import type { BizTeam, BizTeamPrepared, BotsPlan } from "../api/biz";
+import { Departments } from "./Departments";
 
 type Applied = {created:number;changed:number;deleted:number;commit:string};
 
@@ -20,14 +21,17 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
   const [plan, setPlan] = useState<BotsPlan>();
   const [error, setError] = useState<{team?:string; text:string}>();
   const [done, setDone] = useState<{team:string; applied:Applied}>();
+  // Bumped after a download or apply so the departments re-check their sync state.
+  const [synced, setSynced] = useState(0);
 
   const fail = (team:string|undefined, code?:string, bot?:string) =>
     setError({team, text:t(`biz.teamErrors.${code}`, {defaultValue:t("biz.teamErrors.connection_failed"), bot})});
 
   const reset = () => { setActive(undefined); setPrepared(undefined); setPlan(undefined); };
-  const download = async (team:BizTeam) => {
+  const download = async (team:Pick<BizTeam,"id">, overwrite = false) => {
     reset(); setError(undefined); setDone(undefined); setActive(team.id);
-    const result = await prepare.start({FYSO_BIZ_OP:"team-prepare", FYSO_BIZ_TEAM:team.id});
+    const result = await prepare.start({FYSO_BIZ_OP:"team-prepare", FYSO_BIZ_TEAM:team.id, FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
+    setSynced(n=>n+1);
     if (!result || result.error || !result.teamB64) { setActive(undefined); fail(team.id, result?.error, result?.bot); return; }
     const reviewed = await preview.start({TEAM_B64:result.teamB64, TEAM_BASE_B64:result.teamBaseB64});
     if (!reviewed || !Array.isArray(reviewed.plan)) { setActive(undefined); fail(team.id, "preview"); return; }
@@ -39,7 +43,7 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
     const result = await apply.start({TEAM_B64:prepared.teamB64, TEAM_BASE_B64:prepared.teamBaseB64, REMOVAL_REVISION:plan.removalRevision ?? ""});
     if (!result || typeof result.commit !== "string") { fail(active, "apply"); return; }
     setDone({team:active, applied:result}); reset();
-    s.reload(); void reload();
+    s.reload(); void reload(); setSynced(n=>n+1);
   };
   const busy = [prepare, preview, apply].some(a=>a.phase === "running");
   const preparing = prepare.phase === "running" || preview.phase === "running";
@@ -49,12 +53,14 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
     {listFailed && !loading ? <><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></>
       : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
   </div>;
-  if (!teams.length) return <div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
+  const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} />;
+  if (!teams.length) return <div className="biz-stack">{departments}<div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
     <h3>{t("biz.teamsEmptyTitle")}</h3><p className="mute">{t("biz.teamsEmpty")}</p>
     {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}
-  </div>;
+  </div></div>;
 
   return <div className="biz-stack">
+    {departments}
     {listFailed && !loading && <div className="banner banner-down" role="alert">{listFailed} <button type="button" className="btn btn-sm btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></div>}
     {error && !error.team && <div className="banner banner-down" role="alert">{error.text}</div>}
     {loading && <p className="hint" role="status">{t("biz.refreshing")}</p>}
