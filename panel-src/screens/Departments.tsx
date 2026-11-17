@@ -14,7 +14,7 @@ const POLL_MS = 60_000;
  * proposal and decided on Biz, and an accepted one comes down through the team download
  * below (`onPull`). The Biz name always wins (`onRestoreName`).
  */
-export function Departments({onPull, onRestoreName, version}:{onPull:(equipoId:string, overwrite:boolean)=>void; onRestoreName:(equipoId:string)=>void; version:number}) {
+export function Departments({onPull, onPublished, onRestoreName, version}:{onPull:(equipoId:string, overwrite:boolean)=>void; onPublished:()=>Promise<void>; onRestoreName:(equipoId:string)=>void; version:number}) {
   const {t} = useTranslation();
   const s = useStore();
   const check = useDaguAction<BizSyncStatus>(s.backend, "ext-biz-team", "result");
@@ -38,6 +38,7 @@ export function Departments({onPull, onRestoreName, version}:{onPull:(equipoId:s
     const result = await publish.start({FYSO_BIZ_OP:"team-publish", FYSO_BIZ_LOCAL_DEPARTMENT:department});
     setActive(undefined);
     setMessage(result && !result.error ? {department, ok:true, text:t("biz.syncPublished", {version:result.version})} : {department, ok:false, text:error(result?.error)});
+    if (result && !result.error) await onPublished();
     void load();
   };
   const sendProposal = async (d:BizDepartmentSync, overwrite:boolean) => {
