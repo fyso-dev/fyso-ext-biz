@@ -28,9 +28,11 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
     setError({team, text:t(`biz.teamErrors.${code}`, {defaultValue:t("biz.teamErrors.connection_failed"), bot})});
 
   const reset = () => { setActive(undefined); setPrepared(undefined); setPlan(undefined); };
-  const download = async (team:Pick<BizTeam,"id">, overwrite = false) => {
+  // `team-rename` prepares the team file that gives a locally renamed department its Biz
+  // name back; it is reviewed and applied the same way as a download.
+  const download = async (team:Pick<BizTeam,"id">, overwrite = false, op:"team-prepare"|"team-rename" = "team-prepare") => {
     reset(); setError(undefined); setDone(undefined); setActive(team.id);
-    const result = await prepare.start({FYSO_BIZ_OP:"team-prepare", FYSO_BIZ_TEAM:team.id, FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
+    const result = await prepare.start({FYSO_BIZ_OP:op, FYSO_BIZ_TEAM:team.id, FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
     setSynced(n=>n+1);
     if (!result || result.error || !result.teamB64) { setActive(undefined); fail(team.id, result?.error, result?.bot); return; }
     const reviewed = await preview.start({TEAM_B64:result.teamB64, TEAM_BASE_B64:result.teamBaseB64});
@@ -53,7 +55,7 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
     {listFailed && !loading ? <><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></>
       : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
   </div>;
-  const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} />;
+  const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} onRestoreName={id=>void download({id}, false, "team-rename")} />;
   if (!teams.length) return <div className="biz-stack">{departments}<div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
     <h3>{t("biz.teamsEmptyTitle")}</h3><p className="mute">{t("biz.teamsEmpty")}</p>
     {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}

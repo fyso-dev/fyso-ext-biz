@@ -19,8 +19,11 @@ export type BizTeams = {teams:BizTeam[]; error?:string};
 export type BizOverview = {connection?:BizStatus; teams?:BizTeam[]; error?:string};
 export type BizTeamPrepared = {team:{id:string;slug:string;nombre:string;version:number}; bots:{name:string;title:string}[]; skills:string[]; commit:string|null; teamB64:string; teamBaseB64:string; error?:string; bot?:string};
 /** A department of this project and what synchronizing it with Biz would do (framework D82). */
-export type BizDepartmentSync = {department:string; equipoId:string|null; version:number|null; remoteVersion:number|null;
-  state:"absent"|"unpublished"|"synced"|"pull"|"publish"|"conflict"|"pending_apply"};
-export type BizSyncStatus = {publishSupported?:boolean; departments?:BizDepartmentSync[]; error?:string};
+/** The last change proposal sent for a Biz department and Biz's decision on it. */
+export type BizProposal = {id:string; state:"pending"|"accepted"|"rejected"; base:number; reason:string|null; version:number|null};
+export type BizDepartmentSync = {department:string; localName:string|null; equipoId:string|null; version:number|null; remoteVersion:number|null;
+  state:"absent"|"unpublished"|"synced"|"pull"|"propose"|"proposed"|"rejected"|"renamed"|"conflict"|"pending_apply"; proposal:BizProposal|null};
+export type BizSyncStatus = {publishSupported?:boolean; proposalsSupported?:boolean; departments?:BizDepartmentSync[]; error?:string};
+export type BizProposed = {department:string; equipoId:string; proposal:BizProposal; commit:string|null; error?:string};
 export type BizPublished = {department:string; equipoId:string; version:number; commit:string|null; error?:string};
 export type BotsPlan = {plan:string[]; created:number; changed:number; deleted:number; removalRevision?:string};
