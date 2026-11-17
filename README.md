@@ -101,3 +101,9 @@ python3 -m unittest discover -s tests -p 'test_packaging.py'
 The build reuses that framework's pinned TypeScript/Vite tools and SDK types. It emits only extension-owned assets; the browser imports the host SDK as a native ES module. Development files are excluded by Copier.
 
 [Detailed integration behavior](docs/integration.md) · [Initial validation evidence](artifacts/delivery-evidence/initial-integration/README.md).
+
+## License
+
+Copyright (C) 2026 Fyso.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 (`AGPL-3.0-only`). It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
