@@ -30,6 +30,7 @@ biz_url:
     {% endif %}
 _exclude:
   - copier.yml
+  - LICENSE
   - README.md
   - panel-src
   - vite.config.mjs
