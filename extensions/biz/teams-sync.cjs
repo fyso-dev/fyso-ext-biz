@@ -41,6 +41,68 @@ function saveState(root, state, message, git = (...args) => execFileSync('git', 
 
 const key = name => String(name || '').trim().toLowerCase();
 const recordOf = (state, department) => Object.entries(state.departments).find(([name]) => key(name) === key(department));
+const recordById = (state, equipoId) => Object.entries(state.departments).find(([, r]) => r?.equipoId === String(equipoId));
+
+// The Biz team id is the one identity of a synchronized department. A team downloaded
+// before packages existed (fyso-equipo/v1, team.cjs) records it in
+// `project/bots/biz/<slug>/source.json`; its department is the `teams:` entry whose brief
+// lives in that directory, so it follows the Biz team's name on every download.
+const LEGACY = 'project/bots/biz';
+function legacyLinks(root, yaml) {
+  let entries = [];
+  try { entries = fs.readdirSync(path.join(root, LEGACY)); } catch { return []; }
+  let teams = [];
+  try {
+    yaml ??= require('./team.cjs').yamlModule();
+    const file = yaml.parse(fs.readFileSync(path.join(root, 'project/bots/team.yaml'), 'utf8').replaceAll('${FYSO_ROOT}', '__ROOT__'));
+    teams = Array.isArray(file?.teams) ? file.teams : [];
+  } catch { return []; }
+  const links = [];
+  for (const entry of entries) {
+    try {
+      const source = JSON.parse(fs.readFileSync(path.join(root, LEGACY, entry, 'source.json'), 'utf8'));
+      const brief = `__ROOT__/${LEGACY}/${entry}/brief.md`;
+      const team = teams.find(t => t?.brief?.file === brief);
+      if (source?.equipo?.id && team?.name) links.push({department: String(team.name), equipoId: String(source.equipo.id), version: Number(source.equipo.version) || 0});
+    } catch { /* not an import */ }
+  }
+  return links;
+}
+
+/**
+ * Every Biz team this project holds, by Biz team id: `{department, version}` from the sync
+ * state, and from older downloads the state does not record yet.
+ */
+function links(root, yaml) {
+  const state = readState(root), found = {};
+  for (const link of legacyLinks(root, yaml)) found[link.equipoId] = {department: link.department, version: link.version};
+  for (const [department, record] of Object.entries(state.departments)) {
+    if (record?.equipoId) found[record.equipoId] = {department, version: Number(record.version) || null};
+  }
+  return found;
+}
+
+/**
+ * Record older downloads in the sync state under their Biz team id (adopt), and follow a
+ * department renamed by a later download. An adopted record has no digest yet (`null`):
+ * the caller sets it to the department's current one, so it starts as synchronized.
+ */
+function adoptLegacy(root, state, yaml) {
+  const changed = [];
+  for (const link of legacyLinks(root, yaml)) {
+    const byId = recordById(state, link.equipoId);
+    if (byId) {
+      if (byId[0] !== link.department && !recordOf(state, link.department)) {
+        delete state.departments[byId[0]]; state.departments[link.department] = byId[1]; changed.push(link.department);
+      }
+      continue;
+    }
+    if (recordOf(state, link.department)) continue; // already synchronized with another Biz team
+    state.departments[link.department] = {equipoId: link.equipoId, version: link.version, digest: null, legacy: true};
+    changed.push(link.department);
+  }
+  return changed;
+}
 
 /**
  * What synchronizing a department would do. `local` is the digest of its package now
@@ -50,7 +112,8 @@ const recordOf = (state, department) => Object.entries(state.departments).find((
 function decide({local, remote, record}) {
   if (!record) return local ? 'unpublished' : 'absent';
   // A pull is written but not applied yet: the local department still shows the old content.
-  if (record.pending && local !== record.digest) return 'pending_apply';
+  // An older download (no package) waits until the department changes from `before`.
+  if (record.pending && ('before' in record ? local === record.before : local !== record.digest)) return 'pending_apply';
   const localChanged = local !== null && local !== record.digest;
   const remoteChanged = remote !== null && remote !== record.version;
   if (localChanged && remoteChanged) return 'conflict';
@@ -60,8 +123,9 @@ function decide({local, remote, record}) {
 }
 
 /** Local departments (from the project's team file) and recorded ones, with their sync state. */
-async function status({mcp, root, tpl = templates(root), departments, git}) {
+async function status({mcp, root, tpl = templates(root), departments, git, yaml}) {
   const state = readState(root);
+  const adopted = adoptLegacy(root, state, yaml);
   await mcp.initialize();
   const tools = await mcp.tools();
   const remote = {};
@@ -74,6 +138,9 @@ async function status({mcp, root, tpl = templates(root), departments, git}) {
     const entry = recordOf(state, name), record = entry?.[1];
     let local = null;
     try { local = (await tpl.exportDepartment(name, {root})).digest; } catch { local = null; }
+    if (record && record.digest === null) record.digest = local;
+    // An older download (no package) is applied once the department changed: that is its new base.
+    if (record?.pending && 'before' in record && local !== record.before) { record.digest = local; delete record.before; }
     const remoteVersion = record ? remote[record.equipoId] ?? null : null;
     const action = decide({local, remote: remoteVersion, record});
     // Settle a finished pull: the applied department now matches the package.
@@ -82,7 +149,9 @@ async function status({mcp, root, tpl = templates(root), departments, git}) {
       remoteVersion, state: action});
   }
   // Record it, or the next local change would still read as a pull waiting for apply.
-  if (settled.length) saveState(root, state, `biz: applied department ${settled.join(', ')}`, git);
+  if (adopted.length || settled.length) {
+    saveState(root, state, settled.length ? `biz: applied department ${settled.join(', ')}` : `biz: link department ${adopted.join(', ')} to its Biz team`, git);
+  }
   return {publishSupported: tools.some(t => t.name === 'publicar_equipo'), departments: rows};
 }
 
@@ -91,12 +160,15 @@ async function status({mcp, root, tpl = templates(root), departments, git}) {
  * the recorded one. `overwrite` (after a conflict, the person's choice) bases it on Biz's
  * current version instead.
  */
-async function publish({mcp, root, tpl = templates(root), department, departmentId, overwrite = false, git}) {
+async function publish({mcp, root, tpl = templates(root), department, departmentId, overwrite = false, git, yaml}) {
   ensureClean(root, git);
   await mcp.initialize();
   if (!(await mcp.tools()).some(t => t.name === 'publicar_equipo')) throw Error('publish_not_supported');
   const exported = await tpl.exportDepartment(department, {root}).catch(() => { throw Error('unknown_department'); });
-  const state = readState(root), entry = recordOf(state, department), record = entry?.[1];
+  const state = readState(root);
+  // A department downloaded from Biz before packages publishes to that same team, never a new one.
+  adoptLegacy(root, state, yaml);
+  const entry = recordOf(state, department), record = entry?.[1];
   const args = {paquete: exported.package};
   if (record) {
     let base = record.version;
@@ -161,4 +233,23 @@ async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = fal
     teamB64: Buffer.from(imported.proposedTeamYaml).toString('base64'), teamBaseB64: Buffer.from(imported.currentTeamYaml).toString('base64')};
 }
 
-module.exports = {STATE, ERRORS, decide, readState, saveState, status, publish, pull, preview, templates};
+/**
+ * After an older download (a Biz team without a package, team.cjs) wrote version
+ * `version` of team `equipoId`: record it as waiting for apply until the department
+ * changes from what it is now. A team downloaded for the first time is adopted once applied.
+ */
+async function legacyPulled({root, tpl = templates(root), equipoId, version, git, yaml}) {
+  const state = readState(root);
+  adoptLegacy(root, state, yaml);
+  const entry = recordById(state, equipoId);
+  if (!entry) return null;
+  const [name, record] = entry;
+  // The same version again (a review) changes nothing to wait for.
+  if (!(Number(version) > Number(record.version))) return null;
+  let local = null;
+  try { local = (await tpl.exportDepartment(name, {root})).digest; } catch { local = null; }
+  state.departments[name] = {...record, version: Number(version), digest: record.digest ?? local, pending: true, before: local};
+  return saveState(root, state, `biz: pull department ${name} v${version}`, git);
+}
+
+module.exports = {STATE, ERRORS, decide, readState, saveState, status, publish, pull, preview, templates, links, legacyLinks, adoptLegacy, legacyPulled};

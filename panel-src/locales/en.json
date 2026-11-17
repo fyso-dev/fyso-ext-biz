@@ -30,6 +30,7 @@
     "skillsCount_one": "{{count}} skill",
     "skillsCount_other": "{{count}} skills",
     "teamCurrent": "In your project",
+    "teamLocalDepartment": "In your project: department “{{department}}”",
     "teamUpdate": "New changes",
     "teamDownload": "Bring to project",
     "teamUpdateAction": "Update",

@@ -72,6 +72,7 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
           <div className="connector-app-title"><span className="avatar biz-team-mark" aria-hidden="true">{team.name.trim().charAt(0).toUpperCase()}</span><h3>{team.name}</h3></div>
           {state !== "new" && <span className={`pill ${state === "update" ? "pill-warn" : "pill-ok"}`}>{t(state === "update" ? "biz.teamUpdate" : "biz.teamCurrent")}</span>}
         </div>
+        {team.department && <p className="hint">{t("biz.teamLocalDepartment", {department:team.department})}</p>}
         {team.description && <p className="mute">{team.description}</p>}
         <div className="biz-chips"><span className="pill pill-surface">{t("biz.agentsCount", {count:team.agents ?? 0})}</span><span className="pill pill-surface">{t("biz.skillsCount", {count:team.skills ?? 0})}</span></div>
         {done?.team === team.id && <p className="biz-success" role="status">✓ {t("biz.teamApplied", {count:done.applied.created + done.applied.changed})}</p>}
