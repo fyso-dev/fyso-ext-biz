@@ -24,8 +24,14 @@ function readState(root) {
   } catch { return {departments: {}}; }
 }
 
+/** Refuse to absorb a person's staged or unstaged state file. */
+function ensureClean(root, git = (...args) => execFileSync('git', args, {cwd: root, encoding: 'utf8'})) {
+  if (git('status', '--porcelain', '--', STATE).trim()) throw Error('uncommitted_changes');
+}
+
 /** Write the state and commit only that file, never other work. */
 function saveState(root, state, message, git = (...args) => execFileSync('git', args, {cwd: root, encoding: 'utf8'})) {
+  ensureClean(root, git);
   const sorted = Object.fromEntries(Object.entries(state.departments).sort(([a], [b]) => a.localeCompare(b)));
   fs.writeFileSync(path.join(root, STATE), JSON.stringify({departments: sorted}, null, 2) + '\n');
   git('add', '--', STATE);
@@ -155,6 +161,7 @@ async function status({mcp, root, tpl = templates(root), departments, git, yaml}
  * current version instead.
  */
 async function publish({mcp, root, tpl = templates(root), department, departmentId, overwrite = false, git, yaml}) {
+  ensureClean(root, git);
   await mcp.initialize();
   if (!(await mcp.tools()).some(t => t.name === 'publicar_equipo')) throw Error('publish_not_supported');
   const exported = await tpl.exportDepartment(department, {root}).catch(() => { throw Error('unknown_department'); });
@@ -204,6 +211,7 @@ function preview(pkg, yaml = require('./team.cjs').yamlModule()) {
  * the person's explicit choice (`overwrite`).
  */
 async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = false, git, yaml}) {
+  ensureClean(root, git);
   await mcp.initialize();
   const exported = await mcp.call('exportar_equipo', {equipo_id: equipoId});
   const pkg = exported?.paquete;
