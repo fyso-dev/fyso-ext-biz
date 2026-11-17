@@ -278,6 +278,23 @@ test('a newer older-style download waits for apply, then settles on the applied 
   assert.equal(await sync.legacyPulled({root, tpl: templates(local), equipoId: 'e9', version: 2}), null);
 });
 
+test('an older download named differently from its Biz team takes the Biz name once, not on every sync', async () => {
+  const {root, git} = project();
+  legacy(root, git);
+  const mcp = biz({e9: {version: 1, nombre: 'Equipo comercial (Biz)'}}), local = {'Equipo comercial': 'c1'};
+  await sync.status({mcp, root, tpl: templates(local)});
+  assert.deepEqual(Object.keys(sync.readState(root).departments), ['Equipo comercial (Biz)']);
+  const rows = (await sync.status({mcp, root, tpl: templates(local)})).departments;
+  assert.deepEqual(rows.map(d => [d.department, d.localName, d.state]), [['Equipo comercial (Biz)', 'Equipo comercial', 'renamed']]);
+  const restored = Buffer.from(sync.restoreName({root, tpl: templates(local), equipoId: 'e9'}).teamB64, 'base64').toString();
+  assert.match(restored, /- name: Equipo comercial \(Biz\)/);
+  const head = git('rev-parse', 'HEAD');
+  await sync.status({mcp, root, tpl: templates(local)});
+  await sync.status({mcp, root, tpl: templates(local)});
+  assert.equal(git('rev-parse', 'HEAD'), head);
+  assert.deepEqual(Object.keys(sync.readState(root).departments), ['Equipo comercial (Biz)']);
+});
+
 test('a department renamed by a later download keeps its Biz team record', async () => {
   const {root, git} = project();
   legacy(root, git);

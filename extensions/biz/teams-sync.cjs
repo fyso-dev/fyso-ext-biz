@@ -87,12 +87,13 @@ function links(root, yaml) {
  * department renamed by a later download. An adopted record has no digest yet (`null`):
  * the caller sets it to the department's current one, so it starts as synchronized.
  */
-function adoptLegacy(root, state, yaml) {
+function adoptLegacy(root, state, yaml, bizNames = {}) {
   const changed = [];
   for (const link of legacyLinks(root, yaml)) {
     const byId = recordById(state, link.equipoId);
     if (byId) {
-      if (byId[0] !== link.department && !recordOf(state, link.department)) {
+      // A Biz team with a known name keeps it: the Biz name wins over the local one.
+      if (!bizNames[link.equipoId] && byId[0] !== link.department && !recordOf(state, link.department)) {
         delete state.departments[byId[0]]; state.departments[link.department] = byId[1]; changed.push(link.department);
       }
       continue;
@@ -130,14 +131,17 @@ function renamedTo(record, name, names, byBot) {
  * and rooms. Comments and everything else are kept.
  */
 function renameInTeamFile(text, from, to, yaml = require('./team.cjs').yamlModule()) {
-  const doc = yaml.parseDocument(text);
+  // `${FYSO_ROOT}` is not valid inside a YAML flow map: parse it as a marker and put it back.
+  const MARKER = '__FYSO_ROOT_MARKER__';
+  if (text.includes(MARKER)) throw Error('invalid_team_file');
+  const doc = yaml.parseDocument(text.replaceAll('${FYSO_ROOT}', MARKER));
   if (doc.errors.length || !yaml.isMap(doc.contents)) throw Error('invalid_team_file');
   for (const [list, field] of [['teams', 'name'], ['bots', 'team'], ['rooms', 'team']]) {
     const seq = doc.get(list, true);
     if (!yaml.isSeq(seq)) continue;
     for (const node of seq.items) if (yaml.isMap(node) && key(node.get(field)) === key(from)) node.set(field, to);
   }
-  return doc.toString();
+  return doc.toString().replaceAll(MARKER, '${FYSO_ROOT}');
 }
 
 /**
@@ -188,7 +192,6 @@ async function refreshProposals(mcp, records) {
 /** Local departments (from the project's team file) and recorded ones, with their sync state. */
 async function status({mcp, root, tpl = templates(root), departments, git, yaml}) {
   const state = readState(root);
-  const adopted = adoptLegacy(root, state, yaml);
   await mcp.initialize();
   const tools = await mcp.tools();
   const remote = {}, remoteName = {};
@@ -198,6 +201,7 @@ async function status({mcp, root, tpl = templates(root), departments, git, yaml}
       if (typeof e.nombre === 'string' && e.nombre.trim()) remoteName[String(e.id)] = e.nombre.trim();
     }
   }
+  const adopted = adoptLegacy(root, state, yaml, remoteName);
   // Biz always wins on the name: the record follows the Biz team's current name, with or
   // without a new version. A local rename is a local change like any other (a proposal).
   const renamed = [];
@@ -215,8 +219,12 @@ async function status({mcp, root, tpl = templates(root), departments, git, yaml}
   // A department renamed locally is shown under its Biz name, never as a new one.
   const hidden = new Set();
   const localNameOf = {};
+  // An older download is found by its files (source.json) as well as by its bots.
+  const legacyName = Object.fromEntries(legacyLinks(root, yaml).map(link => [link.equipoId, link.department]));
   for (const [name, record] of Object.entries(state.departments)) {
-    const to = renamedTo(record, name, localNames, byBot);
+    const old = legacyName[record?.equipoId];
+    const to = renamedTo(record, name, localNames, byBot)
+      || (old && key(old) !== key(name) && !localNames.some(n => key(n) === key(name)) && localNames.some(n => key(n) === key(old)) ? old : null);
     if (to) { localNameOf[name] = to; hidden.add(key(to)); }
   }
   const names = [...new Set([...localNames.filter(n => !hidden.has(key(n)) || recordOf(state, n)), ...Object.keys(state.departments)])];
@@ -335,7 +343,9 @@ function restoreName({root, tpl = templates(root), equipoId, yaml}) {
   if (!entry) throw Error('not_published');
   const [name, record] = entry;
   const localNames = tpl.departments(root);
-  const from = renamedTo(record, name, localNames, botDepartments(root, yaml));
+  const old = legacyLinks(root, yaml).find(link => link.equipoId === record.equipoId)?.department;
+  const from = renamedTo(record, name, localNames, botDepartments(root, yaml))
+    || (old && key(old) !== key(name) && !localNames.some(n => key(n) === key(name)) && localNames.some(n => key(n) === key(old)) ? old : null);
   if (!from) throw Error('not_renamed');
   const current = fs.readFileSync(path.join(root, 'project/bots/team.yaml'), 'utf8');
   const proposed = renameInTeamFile(current, from, name, yaml);
