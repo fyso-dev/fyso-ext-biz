@@ -7,10 +7,10 @@ _external_data:
 framework_api:
   type: int
   default: "{{ _external_data.framework_api.version }}"
-  help: Framework panel extension API version (v1 or later)
+  help: Framework panel extension API version (v4 or later, for the project identity)
   validator: >-
-    {% if framework_api < 1 or (_external_data.framework_api.version is defined and _external_data.framework_api.version < 1) %}
-    This extension requires Fyso panel extension API v1 or later. Upgrade the framework first.
+    {% if framework_api < 4 or (_external_data.framework_api.version is defined and _external_data.framework_api.version < 4) %}
+    This extension requires Fyso panel extension API v4 or later (framework v0.1.5). Upgrade the framework first.
     {% endif %}
 extension_port:
   type: int

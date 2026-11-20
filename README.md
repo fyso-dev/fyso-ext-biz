@@ -6,7 +6,7 @@ Independent Copier extension for the Fyso Agentic Framework: a business-context 
 
 ## Requirements
 
-- A generated Fyso project with **panel extension API v1 or later**, extension connection hooks and Bot Architect. These framework capabilities are introduced by [framework PR #14](https://github.com/fyso-dev/agentic-framework/pull/14).
+- A generated Fyso project with **panel extension API v4 or later** (project identity, framework v0.1.5), extension connection hooks and Bot Architect. These framework capabilities are introduced by [framework PR #14](https://github.com/fyso-dev/agentic-framework/pull/14).
 - Access to this private repository through your normal GitHub credentials.
 - A Fyso Business account. Connect it from the panel (OAuth); a personal MCP token is an optional alternative. The connected account's permissions scope the connection.
 
@@ -75,6 +75,12 @@ A department travels as the framework's native package (`omb-team/1`: shared ins
 **The Biz name always wins.** On every sync the record takes the Biz team's current name, with or without a new version. A department renamed locally (found again by its bots) is shown under its Biz name: *Restore* prepares the team file with the Biz name for review and apply, and *Propose* sends the new name as a proposal. Design and the Biz contract: [docs/proposals.md](docs/proposals.md).
 
 Nothing merges concurrent edits. Credentials, memory and conversations never travel. See the framework's `docs/team-templates.md`.
+
+## Project identity
+
+With the extension installed, the panel menu gets an **Identity** page (`extensions/biz/pages/identity.yaml`). It edits the project's look: name, accent (a palette or a custom colour), typography, corners, icon and login background. Changes preview live on the panel and are saved through the `ext-biz-brand` workflow, which runs the framework's `brand.cjs` and commits the result. The framework applies the saved identity everywhere (D92); this page only edits it.
+
+The editor is enabled only for a session opened with **Fyso Biz** (the `fyso-biz` login provider, `panel_publication=true`). With a local login the page shows a lock and a button that signs out so the person can sign in again with Fyso Biz.
 
 ## Updates and removal
 
