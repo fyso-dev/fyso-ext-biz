@@ -21,11 +21,11 @@ function mcpPolicy({env = process.env, profiles, access = projectAccess({env})})
       if (!session) return reply(403);
       if (method === 'authenticate') return reply(204);
 
-      const allowed = await access.can(session.accessToken, 'app:mcp');
-      if (!allowed) return reply(403);
+      const granted = new Set(await access.capabilities(session.accessToken));
+      if (!granted.has('app:mcp')) return reply(403);
       if (rpc.has(method)) return reply(204);
       if (method !== 'tools/call' || typeof tool !== 'string' || !/^[a-z0-9_]{1,100}$/.test(tool)) return reply(403);
-      return reply(await access.can(session.accessToken, `mcp:tool:${tool}`) ? 204 : 403);
+      return reply(granted.has(`mcp:tool:${tool}`) ? 204 : 403);
     } catch {
       return reply(503);
     }
