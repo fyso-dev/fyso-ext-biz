@@ -6,7 +6,7 @@ Independent Copier extension for the Fyso Agentic Framework: a business-context 
 
 ## Requirements
 
-- A generated Fyso project with **panel extension API v3 or later** (project identity, framework PR #86), extension connection hooks and Bot Architect. These framework capabilities are introduced by [framework PR #14](https://github.com/fyso-dev/agentic-framework/pull/14).
+- A generated Fyso project with **panel extension API v4 or later** (project identity, framework v0.1.5), extension connection hooks and Bot Architect. These framework capabilities are introduced by [framework PR #14](https://github.com/fyso-dev/agentic-framework/pull/14).
 - Access to this private repository through your normal GitHub credentials.
 - A Fyso Business account. Connect it from the panel (OAuth); a personal MCP token is an optional alternative. The connected account's permissions scope the connection.
 

@@ -1,5 +1,5 @@
 name: ext-biz-brand
-description: Saves the project identity edited on the Identity page (framework brand.cjs, panel API 3)
+description: Saves the project identity edited on the Identity page (framework brand.cjs, panel API 4)
 labels:
   - fyso=system
 type: graph
