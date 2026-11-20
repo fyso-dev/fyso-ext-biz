@@ -1,0 +1,108 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {createHash} = require('node:crypto');
+const {profileSessions} = require('../extensions/biz/profile-session.cjs');
+
+const env = {
+  FYSO_WEB_SCHEME: 'https',
+  FYSO_WEB_DOMAIN: 'demo.test',
+  FYSO_BIZ_ACCESS_ORGANIZATION: 'org',
+  FYSO_BIZ_ACCESS_PROJECT: 'project',
+};
+
+function request(path, user, {method = 'GET', cookie} = {}) {
+  return {url: path, method, headers: {'remote-user': user, cookie}};
+}
+
+async function invoke(profiles, req) {
+  const output = {};
+  const res = {
+    writeHead(status, headers) {
+      Object.assign(output, {status, headers});
+      return this;
+    },
+    end(body) { output.body = body; },
+  };
+  output.handled = await profiles.handle(req, res);
+  return output;
+}
+
+test('binds the one-time OAuth callback and session to the authenticated browser user', async () => {
+  let now = 1000;
+  const profiles = profileSessions({
+    env, now: () => now,
+    auth: {
+      async beginProfile(callback) {
+        assert.equal(callback, 'https://panel.demo.test/extensions/biz/oauth/callback');
+        return {state: 'test-state', url: 'https://biz.test/authorize'};
+      },
+      async finishProfile(_, code) {
+        assert.equal(code, 'oauth-code');
+        return {accessToken: 'private-token', expiresAt: 7000};
+      },
+    },
+    access: {async capabilities(token) {
+      assert.equal(token, 'private-token');
+      return ['app:panel', 'app:mcp'];
+    }, async can(token, capability) {
+      return token === 'private-token' && capability === 'app:mcp';
+    }, async identity(token) {
+      assert.equal(token, 'private-token');
+      return {subject: 'person-1'};
+    }},
+  });
+  const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
+  assert.equal(login.status, 303);
+  const binding = login.headers['Set-Cookie'];
+  assert.match(binding, /^__Host-.*; Path=\/; HttpOnly; SameSite=Lax; Max-Age=600; Secure$/);
+  const callback = '/profile/callback?state=test-state&code=oauth-code';
+  assert.equal((await invoke(profiles, request(callback, 'ana'))).status, 400);
+  const cookie = binding.split(';')[0];
+  assert.equal((await invoke(profiles, request(callback, 'luis', {cookie}))).status, 400);
+  const connected = await invoke(profiles, request(callback, 'ana', {cookie}));
+  assert.equal(connected.status, 303);
+  assert.equal((await invoke(profiles, request(callback, 'ana', {cookie}))).status, 400);
+
+  const sessionCookie = connected.headers['Set-Cookie'][1];
+  assert.doesNotMatch(sessionCookie, /private-token|Domain=/);
+  const session = sessionCookie.split(';')[0];
+  assert.equal(profiles.current(request('/', 'ana', {cookie: session})).subject, 'person-1');
+  assert.equal(profiles.current(request('/', 'luis', {cookie: session})), null);
+  const report = await invoke(profiles, request('/profile/access', 'ana', {cookie: session}));
+  assert.deepEqual(JSON.parse(report.body), {
+    capabilities: ['app:panel', 'app:mcp'], remoteCredentialPath: '/api/ext/biz/profile/mcp-token',
+  });
+  const issue = () => invoke(profiles, request('/profile/mcp-token', 'ana', {method: 'POST', cookie: session}));
+  const minted = await issue();
+  const secret = JSON.parse(minted.body).token.split('.')[1];
+  const digest = createHash('sha256').update(secret).digest('hex');
+  assert.equal(profiles.remote(digest).subject, 'person-1');
+  const replacement = JSON.parse((await issue()).body).token.split('.')[1];
+  assert.equal(profiles.remote(digest), null);
+  const replacementDigest = createHash('sha256').update(replacement).digest('hex');
+  assert.equal(profiles.remote(replacementDigest).subject, 'person-1');
+  profiles.revoke(request('/', 'luis', {cookie: session}));
+  assert.equal(profiles.remote(replacementDigest).subject, 'person-1');
+  profiles.revoke(request('/', 'ana', {cookie: session}));
+  assert.equal(profiles.current(request('/', 'ana', {cookie: session})), null);
+  assert.equal(profiles.remote(replacementDigest), null);
+  now = 7000;
+  assert.equal(profiles.current(request('/', 'ana', {cookie: session})), null);
+});
+
+test('requires a gateway identity on profile routes', async () => {
+  const profiles = profileSessions({env, auth: {}, access: {}});
+  const result = await invoke(profiles, request('/profile/login', undefined, {method: 'POST'}));
+  assert.equal(result.status, 401);
+});
+
+test('renders a same-origin sign-in form in the browser language', async () => {
+  const profiles = profileSessions({env, auth: {}, access: {}});
+  const req = request('/profile/sign-in', 'ana');
+  req.headers['accept-language'] = 'en-US,en;q=0.9';
+  const response = await invoke(profiles, req);
+  assert.equal(response.status, 200);
+  assert.match(response.body, /Sign in with Fyso Biz/);
+  assert.match(response.body, /method="post" action="\/api\/ext\/biz\/profile\/login"/);
+  assert.match(response.headers['Content-Security-Policy'], /form-action 'self'/);
+});

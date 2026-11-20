@@ -3,7 +3,8 @@
 // browser storage, URLs or workflow parameters.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 
-const SCOPE = 'mcp';
+const AGENT_SCOPE = 'mcp';
+const PROFILE_SCOPE = 'framework_access';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /** Biz origin: HTTPS, or HTTP only on a loopback host for local development. */
@@ -46,7 +47,7 @@ async function json(response) {
 }
 
 function store({env = process.env, transport = fetch, now = Date.now} = {}) {
-  const dir = dataDir(env), tokensFile = path.join(dir, 'oauth.json'), clientFile = path.join(dir, 'client.json');
+  const dir = dataDir(env), tokensFile = path.join(dir, 'oauth.json');
   const bizOrigin = () => origin(env.FYSO_BIZ_URL || '');
 
   async function metadata() {
@@ -65,14 +66,15 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
   }
 
   /** A public client registered once per Biz origin and callback address. */
-  async function client(meta, redirectUri) {
+  async function client(meta, redirectUri, scope) {
+    const clientFile = path.join(dir, scope === PROFILE_SCOPE ? 'profile-client.json' : 'client.json');
     const saved = readJson(clientFile);
     if (saved?.origin === bizOrigin() && saved.redirectUri === redirectUri && saved.clientId) return saved.clientId;
     let response;
     try {
       response = await transport(meta.registration_endpoint, {method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({client_name: `Fyso project ${env.FYSO_PROJECT || ''}`.trim(), redirect_uris: [redirectUri],
+        body: JSON.stringify({client_name: `Fyso ${scope === PROFILE_SCOPE ? 'sign-in' : 'project'} ${env.FYSO_PROJECT || ''}`.trim(), redirect_uris: [redirectUri],
           grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none'})});
     } catch { throw Error('connection_failed'); }
     const body = response.ok ? await json(response) : null;
@@ -82,13 +84,13 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
   }
 
   /** Authorization request for the browser; the verifier stays with the caller. */
-  async function begin(redirectUri) {
-    const meta = await metadata(), clientId = await client(meta, redirectUri);
+  async function begin(redirectUri, scope = AGENT_SCOPE) {
+    const meta = await metadata(), clientId = await client(meta, redirectUri, scope);
     const verifier = crypto.randomBytes(32).toString('base64url'), state = crypto.randomBytes(24).toString('base64url');
     const url = new URL(meta.authorization_endpoint);
-    url.search = new URLSearchParams({response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope: SCOPE,
+    url.search = new URLSearchParams({response_type: 'code', client_id: clientId, redirect_uri: redirectUri, scope,
       state, code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256'}).toString();
-    return {url: url.toString(), state, verifier, clientId, redirectUri};
+    return {url: url.toString(), state, verifier, clientId, redirectUri, scope, origin: bizOrigin()};
   }
 
   async function grant(meta, params) {
@@ -108,12 +110,22 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
     connectedAt: previous.connectedAt || new Date(now()).toISOString(),
   });
 
-  async function finish(pending, code) {
-    if (!code || typeof code !== 'string' || code.length > 2000) throw Error('invalid_callback');
-    const meta = await metadata();
-    const body = await grant(meta, {grant_type: 'authorization_code', code, redirect_uri: pending.redirectUri,
+  async function exchange(pending, code, scope) {
+    if (pending.scope !== scope || pending.origin !== bizOrigin() ||
+        !code || typeof code !== 'string' || code.length > 2000) throw Error('invalid_callback');
+    return grant(await metadata(), {grant_type: 'authorization_code', code, redirect_uri: pending.redirectUri,
       client_id: pending.clientId, code_verifier: pending.verifier});
-    save(body, pending.clientId);
+  }
+
+  async function finish(pending, code) {
+    save(await exchange(pending, code, AGENT_SCOPE), pending.clientId);
+  }
+
+  async function finishProfile(pending, code) {
+    const body = await exchange(pending, code, PROFILE_SCOPE);
+    const seconds = Number(body.expires_in);
+    if (!Number.isFinite(seconds) || seconds <= 0) throw Error('invalid_profile_token');
+    return {accessToken: body.access_token, expiresAt: now() + seconds * 1000};
   }
 
   // One refresh at a time: Biz rotates refresh tokens.
@@ -158,7 +170,8 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
   }
   function logout() { fs.rmSync(tokensFile, {force: true}); }
 
-  return {begin, finish, accessToken, status, logout, metadata};
+  return {begin: redirectUri => begin(redirectUri), finish, accessToken, status, logout, metadata,
+    beginProfile: redirectUri => begin(redirectUri, PROFILE_SCOPE), finishProfile};
 }
 
 module.exports = {origin, addresses, store};

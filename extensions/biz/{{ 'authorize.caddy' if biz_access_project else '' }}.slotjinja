@@ -1,0 +1,7 @@
+forward_auth unix//tmp/fyso-ext-biz-{$FYSO_HTTP_PORT}.sock {
+	uri /project-access/check
+	header_up X-Fyso-Policy-Host {host}
+	header_up X-Fyso-Policy-Path {path}
+}
+@bizStripProfileCookie not path /api/panel-access /api/ext/biz/profile/login /extensions/biz/oauth/callback /api/ext/biz/profile/status /api/ext/biz/profile/logout /api/ext/biz/profile/mcp-token
+request_header @bizStripProfileCookie Cookie "(^|;[ \t]*)(__Host-)?fyso_biz_profile(_state)?=[^;]*" ""

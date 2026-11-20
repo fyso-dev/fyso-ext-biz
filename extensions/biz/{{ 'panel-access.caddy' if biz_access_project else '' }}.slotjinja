@@ -1,0 +1,2 @@
+rewrite * /profile/access
+reverse_proxy unix//tmp/fyso-ext-biz-{$FYSO_HTTP_PORT}.sock

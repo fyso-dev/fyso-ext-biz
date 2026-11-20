@@ -1,6 +1,8 @@
 [env]
 FYSO_BIZ_URL = "{{ biz_url }}"
 FYSO_EXT_BIZ_PORT = "{{ extension_port }}"
+FYSO_BIZ_ACCESS_ORGANIZATION = "{{ biz_access_organization }}"
+FYSO_BIZ_ACCESS_PROJECT = "{{ biz_access_project }}"
 {% if panel_publication %}
 FYSO_WEB_SCHEME = "https"
 FYSO_PUBLICATION_SERVICE = {{ publication_service | to_json }}

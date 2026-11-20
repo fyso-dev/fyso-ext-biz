@@ -3,6 +3,7 @@ _answers_file: .copier-answers.ext-biz.yml
 _templates_suffix: .slotjinja
 _external_data:
   framework_api: framework/panel/extension-api.json
+  access_api: framework/panel/access-api.json
   project: .copier-answers.yml
 framework_api:
   type: int
@@ -27,6 +28,26 @@ biz_url:
   validator: >-
     {% if not (biz_url | regex_search('^(https://[a-zA-Z0-9.-]+|http://(localhost|127\\.0\\.0\\.1))(:[0-9]+)?$')) %}
     Use an HTTPS origin without a path or credentials (HTTP is accepted only for localhost).
+    {% endif %}
+biz_access_organization:
+  type: str
+  default: ""
+  help: Organization slug for Biz-managed project access (empty to leave it disabled)
+  validator: >-
+    {% if biz_access_organization and not (biz_access_organization | regex_search('^[a-z0-9][a-z0-9-]{0,62}$')) %}
+    Enter a valid organization slug.
+    {% endif %}
+biz_access_project:
+  type: str
+  default: ""
+  help: Project ID registered in Fyso Biz (empty when managed access is disabled)
+  validator: >-
+    {% if (biz_access_organization and not biz_access_project) or (biz_access_project and not biz_access_organization) %}
+    Set both the organization and project, or leave both empty.
+    {% elif biz_access_project and (_external_data.access_api.version | default(0)) < 1 %}
+    Update the framework before enabling Biz-managed project access.
+    {% elif biz_access_project and not (biz_access_project | regex_search('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) %}
+    Enter the project UUID from Fyso Biz.
     {% endif %}
 panel_publication:
   type: bool

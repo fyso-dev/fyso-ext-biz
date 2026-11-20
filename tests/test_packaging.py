@@ -34,6 +34,8 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/pages/overview.yaml').is_file())
             self.assertTrue((project / 'extensions/biz/bot.cjs').is_file())
             self.assertTrue((project / 'extensions/biz/process.yaml').is_file())
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize'):
+                self.assertFalse((project / 'extensions/biz' / name).exists(), name)
             self.assertIn('biz.{$FYSO_WEB_DOMAIN}', (project / 'extensions/biz/Caddyfile').read_text())
             self.assertIn('FYSO_EXT_BIZ_PORT = "6110"', (project / '.config/mise/conf.d/ext-biz.toml').read_text())
             self.assertFalse((project / 'extensions/biz/tinyauth.providers.yaml').exists())
@@ -46,6 +48,25 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/mcp-proxy.cjs').is_file())
             for name in ['tests', 'scripts', 'panel-src', 'docs', 'artifacts', '.data', 'mise.toml', 'package.json']:
                 self.assertFalse((project / name).exists(), name)
+
+    def test_installs_policy_slots_only_for_managed_access(self):
+        data = ('--data', 'biz_access_organization=fixture', '--data',
+                'biz_access_project=b9209a13-a003-48f9-abc7-65f98e25b856')
+        with tempfile.TemporaryDirectory(prefix='biz-managed-') as temporary:
+            project = Path(temporary)
+            api = project / 'framework/panel/extension-api.json'
+            api.parent.mkdir(parents=True)
+            api.write_text('{"version":4}\n')
+            (project / '.copier-answers.yml').write_text('port_base: 6100\n')
+            denied = self.copy(project, *data)
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn('Update the framework', denied.stderr)
+            self.assertFalse((project / 'extensions').exists())
+            (api.parent / 'access-api.json').write_text('{"version":1}\n')
+            result = self.copy(project, *data)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize'):
+                self.assertTrue((project / 'extensions/biz' / name).is_file(), name)
 
     def test_panel_publication_uses_the_existing_biz_installation(self):
         with tempfile.TemporaryDirectory(prefix='biz-publish-') as temporary:

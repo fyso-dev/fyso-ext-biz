@@ -67,5 +67,17 @@ if (require.main === module) {
   server().listen(port, '127.0.0.1', () => console.log(`Fyso Biz login on 127.0.0.1:${port}`));
   // Older frameworks do not pass a socket; the panel then reads through Dagu.
   const socket = process.env.FYSO_EXT_SOCKET;
-  if (socket) listenPrivate(require('./api.cjs').api(), socket).then(() => console.log(`Fyso Biz panel API on ${socket}`), error => { console.error(`Fyso Biz panel API: ${error.message}`); process.exit(1); });
+  if (socket) {
+    const api = require('./api.cjs').api();
+    const profiles = require('./profile-session.cjs').profileSessions();
+    const policy = require('./project-policy.cjs').projectPolicy({profiles});
+    const mcp = require('./mcp-policy.cjs').mcpPolicy({profiles});
+    const handler = async (req, res) => {
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      if (req.method === 'POST' && pathname === '/mcp-access/check') return mcp(req, res);
+      if (req.method === 'GET' && pathname === '/project-access/check') return policy(req, res);
+      if (!await profiles.handle(req, res)) await api(req, res);
+    };
+    listenPrivate(handler, socket).then(() => console.log(`Fyso Biz panel API on ${socket}`), error => { console.error(`Fyso Biz panel API: ${error.message}`); process.exit(1); });
+  }
 }
