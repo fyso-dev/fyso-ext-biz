@@ -1,6 +1,8 @@
 [env]
 FYSO_BIZ_URL = "{{ biz_url }}"
 FYSO_EXT_BIZ_PORT = "{{ extension_port }}"
+FYSO_BIZ_ACCESS_ORGANIZATION = "{{ biz_access_organization }}"
+FYSO_BIZ_ACCESS_PROJECT = "{{ biz_access_project }}"
 [tasks."biz:check"]
 description = "Check Fyso Biz authentication and available MCP tools"
 run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs check"
