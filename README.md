@@ -119,3 +119,13 @@ The build reuses that framework's pinned TypeScript/Vite tools and SDK types. It
 Copyright (C) 2026 Fyso.
 
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 (`AGPL-3.0-only`). It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
+
+### Running managed workflows from the panel
+
+A project with managed access enabled adds a **Workflows** panel page. Grant
+`app:panel` and `page:extension:biz` to open it. The page lists only workflow
+names in the user's current permissions. For each workflow, grant
+`workflow:<name>:run` to submit it, `workflow:<name>:read` to view its status,
+and `workflow:<name>:read-outputs` to view outputs from a known run. Grant
+workflow execution only when the user can run that workflow with its
+supported parameters.

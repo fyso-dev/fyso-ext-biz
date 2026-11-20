@@ -1,0 +1,13 @@
+{
+  "title": "Automatizaciones",
+  "empty": "No tenés automatizaciones asignadas.",
+  "unavailable": "No se pudieron leer los permisos de automatización.",
+  "run": "Ejecutar automatización",
+  "running": "Ejecutando…",
+  "parameters": "Parámetros",
+  "parametersInvalid": "Ingresá los parámetros como un objeto JSON.",
+  "result": "Resultados",
+  "runError": "No se pudo ejecutar o consultar la automatización.",
+  "queued": "Automatización enviada.",
+  "refresh": "Actualizar estado"
+}
