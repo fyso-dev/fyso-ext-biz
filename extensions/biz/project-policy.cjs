@@ -9,7 +9,6 @@ const profileRoutes = new Map([
   ['/api/ext/biz/profile/status', 'GET'],
   ['/api/ext/biz/profile/logout', 'POST'],
   ['/api/ext/biz/profile/mcp-token', 'POST'],
-  ['/api/session/logout', 'POST'],
 ]);
 const shell = /^\/(?:index\.html|assets\/[a-z0-9_./-]+|favicon\.[a-z0-9]+)?$/i;
 const read = new Set(['GET', 'HEAD']);
@@ -74,6 +73,10 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
         path.split('/').some(segment => segment === '.' || segment === '..')) return reply(403);
     if (method === 'GET' && path === '/' && !profiles.current(req)) {
       return res.writeHead(303, {'Cache-Control': 'no-store', Location: signIn}).end();
+    }
+    if (method === 'POST' && path === '/api/session/logout') {
+      profiles.revoke(req);
+      return reply(204);
     }
     if (profileRoutes.get(path) === method) return reply(204);
 

@@ -48,6 +48,20 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     return session && session.expiresAt > now() && session.user === req.headers['remote-user'] ? session : null;
   }
 
+  function revoke(req) {
+    const session = current(req);
+    if (session) {
+      sessions.delete(cookieValue(req, sessionCookie));
+      if (session.remoteDigest) remoteTokens.delete(session.remoteDigest);
+    }
+    const binding = cookieValue(req, bindingCookie);
+    if (binding) {
+      for (const [state, entry] of pending) {
+        if (entry.binding === binding && entry.user === req.headers['remote-user']) pending.delete(state);
+      }
+    }
+  }
+
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (!['/profile/sign-in', '/profile/login', '/profile/callback', '/profile/logout', '/profile/status', '/profile/mcp-token', '/profile/access'].includes(url.pathname)) return false;
@@ -86,14 +100,14 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const ttl = Math.min(SESSION_TTL, token.expiresAt - now());
         if (ttl < 1000) { respond(res, 403); return true; }
 
-        if (current(req)) sessions.delete(cookieValue(req, sessionCookie));
+        revoke(req);
         const id = random();
         sessions.set(id, {...identity, user, accessToken: token.accessToken, expiresAt: now() + ttl});
         respond(res, 303, {Location: page, 'Set-Cookie': [
           cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
         ]});
       } else if (req.method === 'POST' && url.pathname === '/profile/logout') {
-        if (current(req)) sessions.delete(cookieValue(req, sessionCookie));
+        revoke(req);
         respond(res, 204, {'Set-Cookie': cookie(sessionCookie, '', 0)});
       } else if (req.method === 'POST' && url.pathname === '/profile/mcp-token') {
         const session = current(req);
@@ -134,7 +148,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     return session && session.expiresAt > now() ? session : null;
   }
 
-  return {handle, current, remote};
+  return {handle, current, remote, revoke};
 }
 
 module.exports = {profileSessions};

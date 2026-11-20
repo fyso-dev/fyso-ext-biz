@@ -81,7 +81,10 @@ test('binds the one-time OAuth callback and session to the authenticated browser
   assert.equal(profiles.remote(digest), null);
   const replacementDigest = createHash('sha256').update(replacement).digest('hex');
   assert.equal(profiles.remote(replacementDigest).subject, 'person-1');
-  await invoke(profiles, request('/profile/logout', 'ana', {method: 'POST', cookie: session}));
+  profiles.revoke(request('/', 'luis', {cookie: session}));
+  assert.equal(profiles.remote(replacementDigest).subject, 'person-1');
+  profiles.revoke(request('/', 'ana', {cookie: session}));
+  assert.equal(profiles.current(request('/', 'ana', {cookie: session})), null);
   assert.equal(profiles.remote(replacementDigest), null);
   now = 7000;
   assert.equal(profiles.current(request('/', 'ana', {cookie: session})), null);

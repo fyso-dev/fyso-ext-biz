@@ -78,3 +78,14 @@ test('separates workflow metadata, execution, outputs, and extension actions', a
   assert.equal(await check(handler, '/'), 403);
   assert.equal(await check(handler, '/api/dagu/dags/invoice'), 403);
 });
+
+test('revokes the linked session before forwarding native web logout', async () => {
+  const revocations = [];
+  const handler = projectPolicy({env, profiles: {
+    current: () => null,
+    revoke: request => revocations.push(request.headers['remote-user']),
+  }});
+  assert.equal(await check(handler, '/api/session/logout'), 403);
+  assert.equal(await check(handler, '/api/session/logout', {method: 'POST'}), 204);
+  assert.deepEqual(revocations, ['ana']);
+});
