@@ -1,0 +1,13 @@
+{
+  "title": "Workflows",
+  "empty": "No workflows are assigned to you.",
+  "unavailable": "Could not read workflow permissions.",
+  "run": "Run workflow",
+  "running": "Running…",
+  "parameters": "Parameters",
+  "parametersInvalid": "Enter parameters as a JSON object.",
+  "result": "Outputs",
+  "runError": "The workflow could not be started or read.",
+  "queued": "Workflow submitted.",
+  "refresh": "Refresh status"
+}
