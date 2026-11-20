@@ -1,5 +1,7 @@
 # Fyso Biz extension
 
+Fyso Biz also supports [optional HTTPS panel publication and SSO](docs/panel-publication.md).
+
 Independent Copier extension for the Fyso Agentic Framework: a business-context page, the native Fyso Biz MCP connection, and a dedicated **Biz Partner** bot with OKR/KPI/palanca context.
 
 ## Requirements
