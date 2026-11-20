@@ -6,57 +6,49 @@ import markUrl from './assets/fyso-mark.png';
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const FONT_IDS = Object.keys(FONTS) as Font[];
 const RADIUS_IDS: Radius[] = ['sharp', 'soft', 'round'];
-const BIZ_PROVIDER = 'fyso-biz'; // tinyauth.providers.yaml
 // framework/brand/login-background.svg in CSS: the dark surface with the accent's glow from a corner.
 const drawnLogin = (accent: string) =>
   `radial-gradient(circle at 15% 0%, ${accent}e6 0%, ${accent}33 50%, transparent 90%), linear-gradient(#0e0e12, #0e0e12)`;
 
-type Session = { authenticated: boolean; providerId: string; name: string; username: string };
 type Image = string | null | undefined; // undefined: keep; null: back to the default; string: new (base64)
 
 function Mark({ icon, size }: { icon: string | null | undefined; size: number }) {
   return <img className="id-mark" src={icon ?? markUrl} alt="" width={size} height={size} />;
 }
 
-/** Who is signed in, from the native login service (the panel's own source). */
-function useSession() {
-  const [session, setSession] = useState<Session | null | 'error'>(null);
+/** Whether this project is connected to Fyso Biz: the extension's own status (api.cjs). */
+function useConnection() {
+  const [connected, setConnected] = useState<boolean | null>(null);
   useEffect(() => {
-    fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })
-      .then(async (r) => { if (!r.ok) throw Error(String(r.status)); setSession(((await r.json()) as { auth: Session }).auth); })
-      .catch(() => setSession('error'));
+    fetch('/api/ext/biz/status', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async (r) => { if (!r.ok) throw Error(String(r.status)); setConnected(((await r.json()) as { connected?: boolean }).connected === true); })
+      .catch(() => setConnected(false));
   }, []);
-  return session;
+  return connected;
 }
 
-/** The page: the editor is enabled only for a session opened with Fyso Biz. */
+/** The page: the editor is enabled while the project is connected to Fyso Biz, whoever is signed in. */
 export function Identity() {
   const { t } = useTranslation();
   const s = useStore();
-  const session = useSession();
+  const connected = useConnection();
   const brand = s.project.data?.brand;
-  if (s.mock || session === null || !brand) return <main className="page page-mid"><output className="mute">{t('identity.loading')}</output></main>;
-  const biz = session !== 'error' && session.providerId === BIZ_PROVIDER;
+  if (s.mock || connected === null || !brand) return <main className="page page-mid"><output className="mute">{t('identity.loading')}</output></main>;
   return (
     <main className="page page-mid">
       <div className="page-head">
         <h1>{t('identity.title')}</h1>
       </div>
       <p className="mute">{t('identity.intro')}</p>
-      {biz ? <Editor brand={brand} /> : <BizRequired />}
+      {connected ? <Editor brand={brand} /> : <BizRequired />}
     </main>
   );
 }
 
 function BizRequired() {
   const { t } = useTranslation();
-  const [busy, setBusy] = useState(false);
-  // Signing out returns to the login, where "Fyso Biz" opens a Biz session.
-  const switchLogin = async () => {
-    setBusy(true);
-    try { await fetch('/api/session/logout', { method: 'POST', credentials: 'same-origin' }); }
-    finally { window.top!.location.reload(); }
-  };
+  // The Fyso Biz page connects the project; the panel's router opens it in the parent.
+  const open = () => { window.top!.location.hash = '#/extensions/biz/overview'; };
   return (
     <section className="card id-locked" aria-labelledby="id-locked-t">
       <span className="id-lock" aria-hidden="true">🔒</span>
@@ -64,7 +56,7 @@ function BizRequired() {
         <h2 id="id-locked-t">{t('identity.bizTitle')}</h2>
         <p className="mute">{t('identity.bizBody')}</p>
       </div>
-      <button type="button" className="btn btn-pri" disabled={busy} onClick={() => void switchLogin()}>{t('identity.bizSignIn')}</button>
+      <button type="button" className="btn btn-pri" onClick={open}>{t('identity.bizSignIn')}</button>
     </section>
   );
 }
