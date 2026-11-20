@@ -24,7 +24,7 @@ class Packaging(unittest.TestCase):
             project = Path(temporary)
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
-            api.write_text('{"version":2}\n')
+            api.write_text('{"version":3}\n')
             (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             (project / 'README.md').write_text('Project-owned documentation\n')
             result = self.copy(project)
@@ -52,7 +52,7 @@ class Packaging(unittest.TestCase):
             project = Path(temporary)
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
-            api.write_text('{"version":2}\n')
+            api.write_text('{"version":3}\n')
             (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             result = self.copy(project, '-d', 'panel_publication=true',
                 '-d', 'publication_service=https://publish.example.com',
@@ -95,7 +95,7 @@ class Packaging(unittest.TestCase):
             project = base / 'project'
             api = project / 'framework/panel/extension-api.json'
             api.parent.mkdir(parents=True)
-            api.write_text('{"version":1}\n')
+            api.write_text('{"version":3}\n')
             (project / '.copier-answers.yml').write_text('port_base: 6100\n')
             def run(args, cwd):
                 result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
@@ -117,7 +117,7 @@ class Packaging(unittest.TestCase):
             run(['git', 'tag', 'v0.1.1'], source)
             run(copier + ['update', '--trust', '--defaults', '--answers-file', '.copier-answers.ext-biz.yml', '--vcs-ref', 'v0.1.1'], project)
             self.assertEqual((project / 'extensions/biz/panel/index.html').read_text(), updated)
-            self.assertEqual(json.loads(api.read_text())['version'], 1)
+            self.assertEqual(json.loads(api.read_text())['version'], 3)
 
 if __name__ == '__main__':
     unittest.main()
