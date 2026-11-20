@@ -8,9 +8,9 @@ test('uses the linked human session and checks the current Biz grant on every MC
   const handler = mcpPolicy({
     env: {FYSO_BIZ_ACCESS_ORGANIZATION: 'acme', FYSO_BIZ_ACCESS_PROJECT: 'project'},
     profiles: {remote: digest => digest === 'known' ? {accessToken: 'human'} : null},
-    access: {can: async (token, capability) => {
+    access: {capabilities: async token => {
       assert.equal(token, 'human');
-      return permissions.has(capability);
+      return [...permissions];
     }},
   });
   const principal = {kind: 'delegated', extension: 'biz', digest: 'known'};

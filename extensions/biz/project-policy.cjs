@@ -29,6 +29,11 @@ const exact = new Map([
   ['POST /api/ext/biz/work', 'action:biz:create-work'],
   ['POST /api/ext/biz/logout', 'action:biz:disconnect-agent'],
   ['POST /api/composio/setup', 'action:connectors:configure'],
+  ['GET /api/omb/connectors/catalog', 'action:connectors:read'],
+  ['GET /api/omb/connectors/connected', 'action:connectors:read'],
+  ['GET /api/omb/connectors/tools', 'action:connectors:read'],
+  ['GET /api/omb/mcp/servers', 'action:connectors:read'],
+  ['POST /api/connectors/mcp', 'action:connectors:manage'],
 ]);
 
 const panelMetadata = new Set(['/config/project.json', '/config/apps.json', '/config/extensions.json']);
@@ -52,6 +57,26 @@ function capability(method, path) {
   if (method === 'GET' && execution) {
     return `workflow:${execution[1]}:${execution[2] ? 'read-outputs' : 'read'}`;
   }
+
+  if (method === 'POST' && /^\/api\/omb\/connectors\/[a-z][a-z0-9_-]{0,63}\/authorize$/.test(path)) {
+    return 'action:connectors:authorize';
+  }
+  if (method === 'DELETE' && /^\/api\/omb\/connectors\/[a-z][a-z0-9_-]{0,63}\/accounts\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(path)) {
+    return 'action:connectors:manage';
+  }
+  const server = /^\/api\/omb\/mcp\/servers\/[a-z][a-z0-9_-]{0,31}(?:\/(test|sign-in|sign-out)(?:\/([0-9a-f-]{36}))?)?$/.exec(path);
+  if (server) {
+    const [, operation, flow] = server;
+    if (!operation && method === 'GET') return 'action:connectors:read';
+    if (operation === 'test' && !flow && method === 'POST') return 'action:connectors:test';
+    if ((operation === 'sign-in' && (flow ? ['GET', 'POST', 'DELETE'].includes(method) : method === 'POST')) ||
+        (operation === 'sign-out' && !flow && method === 'POST')) return 'action:connectors:authorize';
+  }
+  if (['PATCH', 'DELETE'].includes(method) && /^\/api\/connectors\/mcp\/[a-z][a-z0-9_-]{0,31}$/.test(path)) {
+    return 'action:connectors:manage';
+  }
+  const secrets = /^\/api\/extensions\/([a-z][a-z0-9-]{1,30})\/secrets$/.exec(path);
+  if (secrets && method === 'POST') return `action:extension:${secrets[1]}:configure`;
 
   const extension = /^\/api\/ext\/([a-z][a-z0-9-]{1,30})\/([a-z0-9][a-z0-9_.-]{0,63})$/.exec(path);
   if (extension && extension[1] !== 'biz' && ['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) {
@@ -86,8 +111,8 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
     const permission = capability(method, path);
     if (!permission && !entryOnly) return reply(403);
     try {
-      const panel = await access.can(session.accessToken, 'app:panel');
-      return reply(panel && (entryOnly || await access.can(session.accessToken, permission)) ? 204 : 403);
+      const granted = new Set(await access.capabilities(session.accessToken));
+      return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) ? 204 : 403);
     } catch {
       return reply(503);
     }

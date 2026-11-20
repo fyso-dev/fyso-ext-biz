@@ -20,14 +20,14 @@ test('requires both panel and route permissions for a protected request', async 
   const permissions = new Set(['app:panel', 'action:bots:list']);
   const handler = projectPolicy({
     env, profiles: {current: () => ({accessToken: 'person'})},
-    access: {can: async (token, capability) => {
-      calls.push(capability);
+    access: {capabilities: async token => {
+      calls.push(token);
       assert.equal(token, 'person');
-      return permissions.has(capability);
+      return [...permissions];
     }},
   });
   assert.equal(await check(handler, '/api/omb/bots'), 204);
-  assert.deepEqual(calls, ['app:panel', 'action:bots:list']);
+  assert.deepEqual(calls, ['person']);
   permissions.delete('action:bots:list');
   assert.equal(await check(handler, '/api/omb/bots'), 403);
   assert.equal(await check(handler, '/api/omb/bots', {method: 'POST'}), 403);
@@ -48,7 +48,7 @@ test('keeps sign-in routes reachable and denies native hosts and unmapped operat
 test('returns an unavailable decision without granting access', async () => {
   const handler = projectPolicy({
     env, profiles: {current: () => ({accessToken: 'person'})},
-    access: {can: async () => { throw Error('unavailable'); }},
+    access: {capabilities: async () => { throw Error('unavailable'); }},
   });
   assert.equal(await check(handler, '/api/omb/bots'), 503);
 });
@@ -60,7 +60,7 @@ test('separates workflow metadata, execution, outputs, and extension actions', a
   ]);
   const handler = projectPolicy({
     env, profiles: {current: () => ({accessToken: 'person'})},
-    access: {can: async (_token, capability) => permissions.has(capability)},
+    access: {capabilities: async () => [...permissions]},
   });
   assert.equal(await check(handler, '/'), 204);
   assert.equal(await check(handler, '/config/project.json'), 204);
@@ -88,4 +88,19 @@ test('revokes the linked session before forwarding native web logout', async () 
   assert.equal(await check(handler, '/api/session/logout'), 403);
   assert.equal(await check(handler, '/api/session/logout', {method: 'POST'}), 204);
   assert.deepEqual(revocations, ['ana']);
+});
+
+test('connector read, OAuth, probe and definition writes use different permissions', async () => {
+  const permissions = new Set(['app:panel', 'action:connectors:read', 'action:connectors:test']);
+  const handler = projectPolicy({
+    env, profiles: {current: () => ({accessToken: 'person'})},
+    access: {capabilities: async () => [...permissions]},
+  });
+  assert.equal(await check(handler, '/api/omb/connectors/catalog'), 204);
+  assert.equal(await check(handler, '/api/omb/mcp/servers/demo/test', {method: 'POST'}), 204);
+  assert.equal(await check(handler, '/api/omb/connectors/sheets/authorize', {method: 'POST'}), 403);
+  assert.equal(await check(handler, '/api/connectors/mcp/demo', {method: 'DELETE'}), 403);
+  permissions.add('action:connectors:manage');
+  assert.equal(await check(handler, '/api/connectors/mcp/demo', {method: 'DELETE'}), 204);
+  assert.equal(await check(handler, '/api/omb/mcp/servers/demo/test/633151c4-db73-4ee9-87bf-554d327e8091', {method: 'POST'}), 403);
 });
