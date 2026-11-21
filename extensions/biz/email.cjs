@@ -23,45 +23,49 @@ async function remote(action, payload, env = process.env) {
   return response.json()
 }
 
+async function writeAttachment(directory, index, attachment) {
+  const file = path.join(directory, String(index + 1))
+  const bytes = Buffer.from(attachment.content, 'base64')
+  const temporary = path.join(directory, randomUUID() + '.tmp')
+  try {
+    await fs.writeFile(temporary, bytes, { mode: 0o600, flag: 'wx' })
+    try {
+      await fs.link(temporary, file)
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      const existing = await fs.readFile(file)
+      if (!existing.equals(bytes)) throw Error('attachment_retry_mismatch')
+    }
+    return { name: attachment.name, path: file }
+  } finally {
+    await fs.rm(temporary, { force: true })
+  }
+}
+
+async function saveAttachments(mail, dataRoot) {
+  if (!mail.attachments?.length) return []
+  if (
+    !/^[a-f0-9-]{36}$/.test(mail.mailbox) ||
+    !/^[a-f0-9]{64}$/.test(mail.deliveryId)
+  )
+    throw Error('invalid_mail_destination')
+  const root = path.resolve(dataRoot, 'ext', 'biz', 'mail')
+  const directory = path.resolve(root, mail.mailbox, mail.deliveryId)
+  if (!directory.startsWith(root + path.sep))
+    throw Error('invalid_mail_destination')
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 })
+  // Numeric file names keep sender-selected names out of the filesystem path.
+  const attachments = []
+  for (const [index, attachment] of mail.attachments.entries()) {
+    attachments.push(await writeAttachment(directory, index, attachment))
+  }
+  return attachments
+}
+
 async function receive(env = process.env) {
   const mail = await remote('pending', undefined, env)
   if (!mail) return
-  const attachments = []
-  if (mail.attachments?.length) {
-    if (
-      !/^[a-f0-9-]{36}$/.test(mail.mailbox) ||
-      !/^[a-f0-9]{64}$/.test(mail.deliveryId)
-    )
-      throw Error('invalid_mail_destination')
-    const directory = path.resolve(
-      env.FYSO_DATA,
-      'ext',
-      'biz',
-      'mail',
-      mail.mailbox,
-      mail.deliveryId,
-    )
-    await fs.mkdir(directory, { recursive: true, mode: 0o700 })
-    for (const [index, attachment] of mail.attachments.entries()) {
-      // Use a local numeric filename so inbound names cannot affect paths.
-      const file = path.join(directory, String(index + 1))
-      const bytes = Buffer.from(attachment.content, 'base64')
-      const temporary = path.join(directory, randomUUID() + '.tmp')
-      try {
-        await fs.writeFile(temporary, bytes, { mode: 0o600, flag: 'wx' })
-        try {
-          await fs.link(temporary, file)
-        } catch (error) {
-          if (error.code !== 'EEXIST') throw error
-          if (!(await fs.readFile(file)).equals(bytes))
-            throw Error('attachment_retry_mismatch')
-        }
-      } finally {
-        await fs.rm(temporary, { force: true })
-      }
-      attachments.push({ name: attachment.name, path: file })
-    }
-  }
+  const attachments = await saveAttachments(mail, env.FYSO_DATA)
   const receipt = await deliverEmail({
     ...mail,
     attachments,
