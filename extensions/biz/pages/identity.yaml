@@ -1,0 +1,5 @@
+name: {es: Identidad, en: Identity}
+icon: palette
+url: /extensions/biz/panel/identity.html
+# Listed only while this project is connected to Fyso Biz (framework panel API 5, D95; older frameworks always list it).
+visible: {api: status, field: connected}

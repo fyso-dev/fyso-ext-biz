@@ -90,3 +90,21 @@ test('OAuth grants use the provider MCP route; personal tokens keep /api/mcp', (
   assert.equal(endpoint('https://fyso.biz'), 'https://fyso.biz/api/mcp');
   assert.equal(endpoint('https://fyso.biz', true), 'https://fyso.biz/mcp');
 });
+
+test('profile sign-in has its own registration and does not replace the agent grant', async (t) => {
+  const e = env(), {transport, calls} = server();
+  t.after(() => fs.rmSync(e.FYSO_DATA, {recursive: true, force: true}));
+  const auth = store({env: e, transport, now: () => 1000});
+  const agent = await auth.begin(addresses(e).callback);
+  assert.equal(new URL(agent.url).searchParams.get('scope'), 'mcp');
+  await auth.finish(agent, 'agent-code');
+
+  const profile = await auth.beginProfile('https://panel.demo.localhost/api/ext/biz/profile/callback');
+  assert.equal(new URL(profile.url).searchParams.get('scope'), 'framework_access');
+  await assert.rejects(auth.finish(profile, 'profile-code'), /invalid_callback/);
+  await assert.rejects(auth.finishProfile(agent, 'agent-code'), /invalid_callback/);
+  assert.deepEqual(await auth.finishProfile(profile, 'profile-code'), {accessToken: 'access-2', expiresAt: 3601000});
+  assert.equal(await auth.accessToken(), 'access-1');
+  assert.equal(calls.filter(c => c.url.endsWith('/oauth/register')).length, 2);
+  assert.ok(fs.existsSync(path.join(e.FYSO_DATA, 'ext/biz/profile-client.json')));
+});

@@ -3,3 +3,8 @@ node_modules/
 __pycache__/
 *.log
 .DS_Store
+
+.wrangler/
+.dev.vars*
+.env*
+wrangler.local.toml

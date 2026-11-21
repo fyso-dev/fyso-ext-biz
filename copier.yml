@@ -3,14 +3,15 @@ _answers_file: .copier-answers.ext-biz.yml
 _templates_suffix: .slotjinja
 _external_data:
   framework_api: framework/panel/extension-api.json
+  access_api: framework/panel/access-api.json
   project: .copier-answers.yml
 framework_api:
   type: int
   default: "{{ _external_data.framework_api.version }}"
-  help: Framework panel extension API version (v1 or later)
+  help: Framework panel extension API version (v4 or later, for the project identity)
   validator: >-
-    {% if framework_api < 1 or (_external_data.framework_api.version is defined and _external_data.framework_api.version < 1) %}
-    This extension requires Fyso panel extension API v1 or later. Upgrade the framework first.
+    {% if framework_api < 4 or (_external_data.framework_api.version is defined and _external_data.framework_api.version < 4) %}
+    This extension requires Fyso panel extension API v4 or later (framework v0.1.5). Upgrade the framework first.
     {% endif %}
 extension_port:
   type: int
@@ -28,6 +29,61 @@ biz_url:
     {% if not (biz_url | regex_search('^(https://[a-zA-Z0-9.-]+|http://(localhost|127\\.0\\.0\\.1))(:[0-9]+)?$')) %}
     Use an HTTPS origin without a path or credentials (HTTP is accepted only for localhost).
     {% endif %}
+biz_access_organization:
+  type: str
+  default: ""
+  help: Organization slug for Biz-managed project access (empty to leave it disabled)
+  validator: >-
+    {% if biz_access_organization and not (biz_access_organization | regex_search('^[a-z0-9][a-z0-9-]{0,62}$')) %}
+    Enter a valid organization slug.
+    {% endif %}
+biz_access_project:
+  type: str
+  default: ""
+  help: Project ID registered in Fyso Biz (empty when managed access is disabled)
+  validator: >-
+    {% if (biz_access_organization and not biz_access_project) or (biz_access_project and not biz_access_organization) %}
+    Set both the organization and project, or leave both empty.
+    {% elif biz_access_project and (_external_data.access_api.version | default(0)) < 1 %}
+    Update the framework before enabling Biz-managed project access.
+    {% elif biz_access_project and not (biz_access_project | regex_search('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) %}
+    Enter the project UUID from Fyso Biz.
+    {% endif %}
+panel_publication:
+  type: bool
+  default: false
+  help: Enable panel publication and Fyso Biz single sign-on
+  validator: >-
+    {% if panel_publication and not biz_url.startswith('https://') %}
+    Panel publication requires a Biz HTTPS origin.
+    {% endif %}
+publication_service:
+  type: str
+  default: ""
+  when: "{{ panel_publication }}"
+  help: HTTPS origin of the Fyso Biz panel publication service
+  validator: >-
+    {% if panel_publication and not (publication_service | regex_search('^https://[a-z0-9][a-z0-9.-]*[a-z0-9]$')) %}
+    Enter the HTTPS origin without a path or trailing slash.
+    {% endif %}
+biz_sso_client_id:
+  type: str
+  default: ""
+  when: "{{ panel_publication }}"
+  help: Fyso Biz OAuth client registered for the Tinyauth callback
+  validator: >-
+    {% if panel_publication and not biz_sso_client_id %}
+    A registered OAuth client ID is required.
+    {% endif %}
+biz_sso_email:
+  type: str
+  default: ""
+  when: "{{ panel_publication }}"
+  help: Verified Fyso Biz email allowed to sign in to this panel
+  validator: >-
+    {% if panel_publication and not (biz_sso_email | regex_search('^[a-zA-Z0-9._+%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$')) %}
+    Enter the exact email of the permitted Fyso Biz user.
+    {% endif %}
 _exclude:
   - copier.yml
   - LICENSE
@@ -43,6 +99,7 @@ _exclude:
   - scripts
   - tests
   - docs
+  - service
   - artifacts
   - .data
   - node_modules
