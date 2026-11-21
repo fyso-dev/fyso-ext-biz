@@ -1,5 +1,10 @@
 {
   "biz": {
+    "mailTitle": "Agent email",
+    "mailError": "Could not access agent email.",
+    "mailCopy": "Copy address",
+    "mailOff": "Deactivate email",
+    "mailOn": "Activate email",
     "title": "Fyso Biz",
     "subtitle": "Your agent teams and business objectives, in this project.",
     "connected": "Connected",

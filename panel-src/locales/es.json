@@ -1,5 +1,10 @@
 {
   "biz": {
+    "mailTitle": "Correo de agentes",
+    "mailError": "No se pudo acceder al correo del agente.",
+    "mailCopy": "Copiar dirección",
+    "mailOff": "Desactivar correo",
+    "mailOn": "Activar correo",
     "title": "Fyso Biz",
     "subtitle": "Tus equipos de agentes y los objetivos de tu negocio, en este proyecto.",
     "connected": "Conectado",

@@ -34,6 +34,7 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
     }
   };
   const routes = {
+    'GET /mail/addresses': () => require('./email.cjs').remote('addresses', undefined, env),
     'GET /status': () => biz.statusOf(env),
     'GET /teams': () => biz.overview(env, () => open()).catch(error => {
       if (RETRY.has(error.message)) { reset(); return biz.overview(env, () => open()); }
@@ -56,6 +57,23 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
       res.writeHead(status, {'Content-Type':'application/json', 'Cache-Control':'no-store'});
       res.end(JSON.stringify(body));
     };
+    if (req.method === 'POST' && ['/mail/activate','/mail/deactivate'].includes(url.pathname)) {
+      if (!req.headers['content-type']?.startsWith('application/json')) return send(415,{error:'invalid_input'});
+      try {
+        let raw = '';
+        for await (const chunk of req) { raw += chunk; if (raw.length > 2048) return send(400,{error:'invalid_input'}); }
+        const {bot} = JSON.parse(raw);
+        let thread;
+        if (url.pathname === '/mail/activate') {
+          if (!/^[0-9]{1,5}$/.test(env.FYSO_OMB_PORT || '')) throw Error();
+          const exec = require('node:util').promisify(require('node:child_process').execFile);
+          const {stdout} = await exec('openmausbot',['bots','--port',env.FYSO_OMB_PORT,'--json'],{timeout:10000});
+          thread = JSON.parse(stdout).bots.find(item=>item.id === bot)?.activeTaskId;
+          if (!thread) return send(400,{error:'invalid_bot'});
+        }
+        return send(200, await require('./email.cjs').remote(url.pathname.split('/').pop(), {bot,thread}, env));
+      } catch { return send(502,{error:'agent_mail_unavailable'}); }
+    }
     if (req.method === 'POST' && url.pathname === '/work') {
       try {
         let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 20000) throw Error('invalid_input'); }

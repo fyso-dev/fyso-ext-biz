@@ -64,6 +64,7 @@ module.exports = {server, listenPrivate};
 if (require.main === module) {
   const port = Number(process.env.FYSO_EXT_BIZ_PORT);
   if (!port) { console.error('FYSO_EXT_BIZ_PORT is required'); process.exit(1); }
+  require("./email.cjs").startReceiver();
   server().listen(port, '127.0.0.1', () => console.log(`Fyso Biz login on 127.0.0.1:${port}`));
   // Older frameworks do not pass a socket; the panel then reads through Dagu.
   const socket = process.env.FYSO_EXT_SOCKET;
