@@ -7,7 +7,18 @@ const SESSION_TTL = 10 * 60 * 1000;
 // Errors after which a fresh MCP session (and a refreshed token) may succeed.
 const RETRY = new Set(['remote_unavailable', 'access_denied', 'invalid_response']);
 
-async function updateMailbox(req, send, activating, env) {
+const MAIL_ACTIONS = ['activate', 'deactivate', 'reset'];
+// What Biz receives for a mailbox action. Names come from this project's OpenMausBot and
+// configuration, not from the browser: Biz builds the readable address from them
+// (<agent>-<project>-<code>@…). `null`: the bot does not exist here.
+function mailboxRequest(action, bot, info, env = process.env) {
+  if (action === 'deactivate') return {bot};
+  if (!info || (action === 'activate' && !info.thread)) return null;
+  const names = {name:info.name, project:env.FYSO_PROJECT_NAME || env.FYSO_PROJECT || undefined};
+  return action === 'activate' ? {bot, thread:info.thread, ...names} : {bot, ...names};
+}
+
+async function updateMailbox(req, send, action, env) {
   if (!req.headers['content-type']?.startsWith('application/json')) return send(415,{error:'invalid_input'});
   try {
     let raw = '';
@@ -17,20 +28,21 @@ async function updateMailbox(req, send, activating, env) {
     }
     const {bot} = JSON.parse(raw);
     if (typeof bot !== 'string' || !bot) return send(400,{error:'invalid_bot'});
-    const thread = activating ? await activeThread(bot, env.FYSO_OMB_PORT) : undefined;
-    if (activating && !thread) return send(400,{error:'invalid_bot'});
-    const action = activating ? 'activate' : 'deactivate';
-    return send(200, await require('./email.cjs').remote(action, {bot,thread}, env));
+    const info = action === 'deactivate' ? null : await botInfo(bot, env.FYSO_OMB_PORT);
+    const payload = mailboxRequest(action, bot, info, env);
+    if (!payload) return send(400,{error:'invalid_bot'});
+    return send(200, await require('./email.cjs').remote(action, payload, env));
   } catch {
     return send(502,{error:'agent_mail_unavailable'});
   }
 }
 
-async function activeThread(bot, port) {
+async function botInfo(bot, port) {
   if (!/^[0-9]{1,5}$/.test(port || '') || +port < 1 || +port > 65535) throw Error('missing_project_port');
   const exec = require('node:util').promisify(require('node:child_process').execFile);
   const {stdout} = await exec('openmausbot',['bots','--port',port,'--json'],{timeout:10000});
-  return JSON.parse(stdout).bots.find(item=>item.id === bot)?.activeTaskId;
+  const found = JSON.parse(stdout).bots.find(item=>item.id === bot);
+  return found ? {thread:found.activeTaskId, name:found.name} : null;
 }
 
 function api({env = process.env, transport = fetch, now = Date.now} = {}) {
@@ -83,8 +95,9 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
       res.writeHead(status, {'Content-Type':'application/json', 'Cache-Control':'no-store'});
       res.end(JSON.stringify(body));
     };
-    if (req.method === 'POST' && ['/mail/activate','/mail/deactivate'].includes(url.pathname)) {
-      return updateMailbox(req, send, url.pathname === '/mail/activate', env);
+    const mailAction = url.pathname.startsWith('/mail/') && url.pathname.slice(6);
+    if (req.method === 'POST' && MAIL_ACTIONS.includes(mailAction)) {
+      return updateMailbox(req, send, mailAction, env);
     }
     if (req.method === 'POST' && url.pathname === '/work') {
       try {
@@ -113,4 +126,4 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
   };
 }
 
-module.exports = {api};
+module.exports = {api, mailboxRequest};

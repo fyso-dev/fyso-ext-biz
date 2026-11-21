@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), http = require('node:http');
-const {api} = require('../extensions/biz/api.cjs');
+const {api, mailboxRequest} = require('../extensions/biz/api.cjs');
 const {listenPrivate} = require('../extensions/biz/gateway.cjs');
 
 const text = data => ({content:[{type:'text', text:JSON.stringify(data)}]});
@@ -114,4 +114,16 @@ test('creating work uses the connected identity and never retries an ambiguous m
   const result=await new Promise(resolve=>handler(req,{writeHead(){},end(body){resolve(JSON.parse(body));}}));
   assert.deepEqual(result,{error:'uncertain'}); assert.equal(creates,1);
   assert.deepEqual(args,{ejecutor:'agente',agente_destino:'Project A',titulo:'Title',instrucciones:'Instructions',key_result_id:'kr1'});
+});
+
+test('mailbox requests carry the agent name from OpenMausBot and the project name', () => {
+  const env = {FYSO_PROJECT_NAME:'Skalo', FYSO_PROJECT:'skalo'}, info = {thread:'t1', name:'MausBot'};
+  assert.deepEqual(mailboxRequest('activate', 'b1', info, env), {bot:'b1', thread:'t1', name:'MausBot', project:'Skalo'});
+  assert.deepEqual(mailboxRequest('reset', 'b1', info, env), {bot:'b1', name:'MausBot', project:'Skalo'});
+  assert.deepEqual(mailboxRequest('deactivate', 'b1', null, env), {bot:'b1'});
+  assert.equal(mailboxRequest('reset', 'b1', {name:'MausBot', project:'skalo'}, {FYSO_PROJECT:'skalo'}).project, 'skalo');
+  // A bot that is not in this project, or has no active thread to deliver to, is refused.
+  assert.equal(mailboxRequest('activate', 'b1', null, env), null);
+  assert.equal(mailboxRequest('activate', 'b1', {name:'MausBot'}, env), null);
+  assert.equal(mailboxRequest('reset', 'b1', null, env), null);
 });
