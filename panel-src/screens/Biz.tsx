@@ -1,3 +1,4 @@
+import {Mail} from './Mail';
 import { useEffect, useRef, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { External, useDaguAction, useStore } from "@fyso/panel";
@@ -87,6 +88,7 @@ export function Biz() {
       {tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
         : tab === "business" ? <Business onContext={setContext} /> : <Work />}
+      {tab === "teams" && connection.method === "oauth" && <Mail />}
       {connection.method === "token" && <aside className="card biz-partner">
         <span className="avatar" aria-hidden="true">B</span>
         <div className="grow"><strong>{t("biz.partnerTitle")}</strong><p className="hint">{t(bizBot ? "biz.partnerReady" : "biz.partnerPending")}</p></div>

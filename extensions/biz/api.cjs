@@ -7,6 +7,32 @@ const SESSION_TTL = 10 * 60 * 1000;
 // Errors after which a fresh MCP session (and a refreshed token) may succeed.
 const RETRY = new Set(['remote_unavailable', 'access_denied', 'invalid_response']);
 
+async function updateMailbox(req, send, activating, env) {
+  if (!req.headers['content-type']?.startsWith('application/json')) return send(415,{error:'invalid_input'});
+  try {
+    let raw = '';
+    for await (const chunk of req) {
+      raw += chunk;
+      if (raw.length > 2048) return send(400,{error:'invalid_input'});
+    }
+    const {bot} = JSON.parse(raw);
+    if (typeof bot !== 'string' || !bot) return send(400,{error:'invalid_bot'});
+    const thread = activating ? await activeThread(bot, env.FYSO_OMB_PORT) : undefined;
+    if (activating && !thread) return send(400,{error:'invalid_bot'});
+    const action = activating ? 'activate' : 'deactivate';
+    return send(200, await require('./email.cjs').remote(action, {bot,thread}, env));
+  } catch {
+    return send(502,{error:'agent_mail_unavailable'});
+  }
+}
+
+async function activeThread(bot, port) {
+  if (!/^[0-9]{1,5}$/.test(port || '') || +port < 1 || +port > 65535) throw Error('missing_project_port');
+  const exec = require('node:util').promisify(require('node:child_process').execFile);
+  const {stdout} = await exec('openmausbot',['bots','--port',port,'--json'],{timeout:10000});
+  return JSON.parse(stdout).bots.find(item=>item.id === bot)?.activeTaskId;
+}
+
 function api({env = process.env, transport = fetch, now = Date.now} = {}) {
   // One MCP session and tool catalog reused across reads: initialize + tools/list cost
   // two round trips that each panel read paid before.
@@ -34,6 +60,7 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
     }
   };
   const routes = {
+    'GET /mail/addresses': () => require('./email.cjs').remote('addresses', undefined, env),
     'GET /status': () => biz.statusOf(env),
     'GET /teams': () => biz.overview(env, () => open()).catch(error => {
       if (RETRY.has(error.message)) { reset(); return biz.overview(env, () => open()); }
@@ -56,6 +83,9 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
       res.writeHead(status, {'Content-Type':'application/json', 'Cache-Control':'no-store'});
       res.end(JSON.stringify(body));
     };
+    if (req.method === 'POST' && ['/mail/activate','/mail/deactivate'].includes(url.pathname)) {
+      return updateMailbox(req, send, url.pathname === '/mail/activate', env);
+    }
     if (req.method === 'POST' && url.pathname === '/work') {
       try {
         let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 20000) throw Error('invalid_input'); }
