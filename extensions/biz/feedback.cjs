@@ -5,6 +5,7 @@ const path = require('node:path');
 const {origin, addresses} = require('./auth.cjs');
 
 const CAPABILITY = 'action:feedback:submit';
+const RECEIPT_UNAVAILABLE = {error: 'receipt_unavailable'};
 const ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const reportId = value => typeof value === 'string' && ID.test(value);
 
@@ -47,8 +48,10 @@ function receiptStore(env, id) {
     async read() {
       try {
         const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-        return validReceipt(saved) ? saved : undefined;
-      } catch { return undefined; }
+        return validReceipt(saved) ? {receipt: saved} : {unavailable: true};
+      } catch (error) {
+        return error.code === 'ENOENT' ? {} : {unavailable: true};
+      }
     },
     async save(value) {
       await fs.mkdir(folder, {recursive: true, mode: 0o700});
@@ -77,12 +80,13 @@ function feedback({env, access, transport = fetch}) {
 
   async function recoverReceipt(id, store) {
     const pending = pendingReceipts.get(id);
-    return pending ? persistReceipt(id, store, pending) : store.read();
+    return pending ? {receipt: await persistReceipt(id, store, pending)} : store.read();
   }
 
   async function submit({id, title, body, related}, token) {
     const store = receiptStore(env, id);
-    const existing = await recoverReceipt(id, store);
+    const {receipt: existing, unavailable} = await recoverReceipt(id, store);
+    if (unavailable) return [503, RECEIPT_UNAVAILABLE];
     if (existing) return [200, existing];
     if (!await report(env.FYSO_ROOT, id)) return [404, {error: 'report_not_found'}];
 
@@ -109,10 +113,12 @@ function feedback({env, access, transport = fetch}) {
     if (req.method === 'GET') {
       const id = url.searchParams.get('id');
       if (!reportId(id)) return send(404, {error: 'report_not_found'});
-      const receipt = await recoverReceipt(id, receiptStore(env, id));
+      const {receipt, unavailable} = await recoverReceipt(id, receiptStore(env, id));
+      if (unavailable) return send(503, RECEIPT_UNAVAILABLE);
+      if (receipt) return send(200, {id, receipt});
       const local = await report(env.FYSO_ROOT, id);
-      if (!local && !receipt) return send(404, {error: 'report_not_found'});
-      return send(200, {id, ...local, receipt});
+      if (!local) return send(404, {error: 'report_not_found'});
+      return send(200, local);
     }
     if (req.method !== 'POST') return send(405, {error: 'method_not_allowed'});
     if (req.headers.origin !== new URL(addresses(env).page).origin) return send(403, {error: 'access_denied'});

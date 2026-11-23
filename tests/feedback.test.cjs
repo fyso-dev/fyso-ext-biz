@@ -31,7 +31,7 @@ async function fixture(t, beforeResponse = async () => {}) {
       assert.equal(target.href, 'https://fyso.biz/oauth/framework-feedback?organization=tenant&project=project');
       assert.equal(init.headers.Authorization, 'Bearer person');
       assert.deepEqual(JSON.parse(init.body), {id, title: 'Reviewed', body: 'Sanitized'});
-      await beforeResponse();
+      await beforeResponse(root);
       return Response.json({number: 24, url}, {status: 201});
     },
   });
@@ -61,9 +61,8 @@ test('reviews a local report, checks the individual grant and origin, and saves 
 });
 
 test('recovers a confirmed receipt after a local write failure and archival', async t => {
-  const {call, root, reportPath, posted} = await fixture(t);
+  const {call, root, reportPath, posted} = await fixture(t, root => fs.writeFile(path.join(root, '.data'), ''));
   const cache = path.join(root, '.data');
-  await fs.writeFile(cache, '');
   const pending = {number: 24, url, persistencePending: true};
   assert.deepEqual(await call('POST', 'person'), {status: 200, result: pending});
   await fs.unlink(reportPath);
@@ -76,8 +75,10 @@ test('recovers a confirmed receipt after a local write failure and archival', as
 });
 
 test('shares the confirmed receipt between simultaneous submissions', async t => {
-  const {call, root, posted} = await fixture(t, () => delay(50));
-  await fs.writeFile(path.join(root, '.data'), '');
+  const {call, posted} = await fixture(t, async root => {
+    await delay(50);
+    await fs.writeFile(path.join(root, '.data'), '');
+  });
   const confirmation = {status: 200, result: {number: 24, url, persistencePending: true}};
   assert.deepEqual(await Promise.all([call('POST', 'person'), call('POST', 'person')]),
     [confirmation, confirmation]);
@@ -90,4 +91,34 @@ test('requires a local Markdown report for a first submission', async t => {
   assert.equal((await call('GET', 'person')).status, 404);
   assert.equal((await call('POST', 'person')).status, 404);
   assert.equal(posted(), 0);
+});
+
+test('returns a saved receipt when the Markdown directory is inaccessible', async t => {
+  const {call, reportPath} = await fixture(t);
+  assert.equal((await call('POST', 'person')).status, 200);
+  const realpath = fs.realpath;
+  t.mock.method(fs, 'realpath', async file => {
+    if (file === path.dirname(reportPath)) throw Object.assign(new Error('Permission denied'), {code: 'EACCES'});
+    return realpath(file);
+  });
+  assert.deepEqual(await call('GET', 'person'), {status: 200, result: {id, receipt: {number: 24, url}}});
+});
+
+test('blocks publication when a saved receipt cannot be read or validated', async t => {
+  const {call, root, posted} = await fixture(t);
+  assert.equal((await call('POST', 'person')).status, 200);
+  const folder = path.join(root, '.data/ext/biz/feedback');
+  const [name] = await fs.readdir(folder);
+  const file = path.join(folder, name);
+  const unavailable = {status: 503, result: {error: 'receipt_unavailable'}};
+  for (const content of ['{', '{"number":24}']) {
+    await fs.writeFile(file, content);
+    assert.deepEqual(await call('GET', 'person'), unavailable);
+    assert.deepEqual(await call('POST', 'person'), unavailable);
+  }
+  await fs.unlink(file);
+  await fs.mkdir(file);
+  assert.deepEqual(await call('GET', 'person'), unavailable);
+  assert.deepEqual(await call('POST', 'person'), unavailable);
+  assert.equal(posted(), 1);
 });
