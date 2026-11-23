@@ -34,7 +34,7 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/pages/overview.yaml').is_file())
             self.assertTrue((project / 'extensions/biz/bot.cjs').is_file())
             self.assertTrue((project / 'extensions/biz/process.yaml').is_file())
-            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml'):
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertFalse((project / 'extensions/biz' / name).exists(), name)
             self.assertIn('biz.{$FYSO_WEB_DOMAIN}', (project / 'extensions/biz/Caddyfile').read_text())
             self.assertIn('FYSO_EXT_BIZ_PORT = "6110"', (project / '.config/mise/conf.d/ext-biz.toml').read_text())
@@ -65,7 +65,7 @@ class Packaging(unittest.TestCase):
             (api.parent / 'access-api.json').write_text('{"version":1}\n')
             result = self.copy(project, *data)
             self.assertEqual(result.returncode, 0, result.stderr)
-            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml'):
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertTrue((project / 'extensions/biz' / name).is_file(), name)
 
     def test_panel_publication_uses_the_existing_biz_installation(self):

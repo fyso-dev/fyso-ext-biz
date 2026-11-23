@@ -1,3 +1,4 @@
+const {feedback} = require('./feedback.cjs');
 const {createHash, randomBytes} = require('node:crypto');
 const {addresses, store} = require('./auth.cjs');
 const {projectAccess} = require('./project-access.cjs');
@@ -31,6 +32,7 @@ function cookieValue(req, name) {
 }
 
 function profileSessions({env = process.env, auth = store({env}), access = projectAccess({env}), now = Date.now} = {}) {
+  const submitFeedback = feedback({env, access});
   const pending = new Map();
   const sessions = new Map();
   const remoteTokens = new Map();
@@ -64,7 +66,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
 
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
-    if (!['/profile/sign-in', '/profile/login', '/profile/callback', '/profile/logout', '/profile/status', '/profile/mcp-token', '/profile/access'].includes(url.pathname)) return false;
+    if (!['/profile/sign-in', '/profile/login', '/profile/callback', '/profile/logout', '/profile/status', '/profile/mcp-token', '/profile/feedback', '/profile/access'].includes(url.pathname)) return false;
     if (!enabled) {
       respond(res, url.pathname === '/profile/access' ? 204 : 404);
       return true;
@@ -78,7 +80,9 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
 
     const page = addresses(env).page;
     try {
-      if (req.method === 'GET' && url.pathname === '/profile/sign-in') {
+      if (url.pathname === '/profile/feedback') {
+        await submitFeedback(req, res, url, current(req));
+      } else if (req.method === 'GET' && url.pathname === '/profile/sign-in') {
         signInPage(req, res);
       } else if (req.method === 'POST' && url.pathname === '/profile/login') {
         const callback = new URL('/extensions/biz/oauth/callback', page).href;
