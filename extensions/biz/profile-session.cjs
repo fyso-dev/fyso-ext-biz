@@ -64,6 +64,50 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     }
   }
 
+  async function finishLogin(req, res, url, user, page) {
+    const state = url.searchParams.get('state');
+    const entry = pending.get(state);
+    if (!entry || entry.user !== user || entry.binding !== cookieValue(req, bindingCookie)) {
+      respond(res, 400);
+      return;
+    }
+    pending.delete(state);
+    if (url.searchParams.has('error')) { respond(res, 403); return; }
+    const token = await auth.finishProfile(entry.request, url.searchParams.get('code'));
+    const identity = await access.identity(token.accessToken);
+    const ttl = Math.min(SESSION_TTL, token.expiresAt - now());
+    if (ttl < 1000) { respond(res, 403); return; }
+
+    revoke(req);
+    const id = random();
+    sessions.set(id, {...identity, user, accessToken: token.accessToken, expiresAt: now() + ttl});
+    respond(res, 303, {Location: page, 'Set-Cookie': [
+      cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
+    ]});
+  }
+
+  async function issueRemoteToken(req, res) {
+    const session = current(req);
+    if (!secure || !session || !await access.can(session.accessToken, 'app:mcp')) {
+      respond(res, 403);
+      return;
+    }
+    const id = cookieValue(req, sessionCookie);
+    const secret = random();
+    const digest = createHash('sha256').update(secret).digest('hex');
+    if (session.remoteDigest) remoteTokens.delete(session.remoteDigest);
+    session.remoteDigest = digest;
+    remoteTokens.set(digest, {id, expiresAt: session.expiresAt});
+    res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
+    res.end(JSON.stringify({token: `fyso-ext-biz.${secret}`, expiresAt: session.expiresAt}));
+  }
+
+  function expireSessions() {
+    for (const entries of [pending, sessions, remoteTokens]) {
+      for (const [id, item] of entries) if (item.expiresAt <= now()) entries.delete(id);
+    }
+  }
+
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (!['/profile/sign-in', '/profile/login', '/profile/callback', '/profile/logout', '/profile/status', '/profile/mcp-token', '/profile/feedback', '/profile/access'].includes(url.pathname)) return false;
@@ -74,70 +118,50 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
 
     const user = req.headers['remote-user'];
     if (typeof user !== 'string' || !user) { respond(res, 401); return true; }
-    for (const entries of [pending, sessions, remoteTokens]) {
-      for (const [id, item] of entries) if (item.expiresAt <= now()) entries.delete(id);
-    }
+    expireSessions();
 
     const page = addresses(env).page;
     try {
       if (url.pathname === '/profile/feedback') {
         await submitFeedback(req, res, url, current(req));
-      } else if (req.method === 'GET' && url.pathname === '/profile/sign-in') {
+        return true;
+      }
+      switch (req.method + ' ' + url.pathname) {
+      case 'GET /profile/sign-in':
         signInPage(req, res);
-      } else if (req.method === 'POST' && url.pathname === '/profile/login') {
+        break;
+      case 'POST /profile/login': {
         const callback = new URL('/extensions/biz/oauth/callback', page).href;
         const request = await auth.beginProfile(callback);
         const binding = random();
         pending.set(request.state, {request, user, binding, expiresAt: now() + LOGIN_TTL});
         respond(res, 303, {Location: request.url, 'Set-Cookie': cookie(bindingCookie, binding, LOGIN_TTL)});
-      } else if (req.method === 'GET' && url.pathname === '/profile/callback') {
-        const state = url.searchParams.get('state');
-        const entry = pending.get(state);
-        if (!entry || entry.user !== user || entry.binding !== cookieValue(req, bindingCookie)) {
-          respond(res, 400);
-          return true;
-        }
-        pending.delete(state);
-        if (url.searchParams.has('error')) { respond(res, 403); return true; }
-        const token = await auth.finishProfile(entry.request, url.searchParams.get('code'));
-        const identity = await access.identity(token.accessToken);
-        const ttl = Math.min(SESSION_TTL, token.expiresAt - now());
-        if (ttl < 1000) { respond(res, 403); return true; }
-
-        revoke(req);
-        const id = random();
-        sessions.set(id, {...identity, user, accessToken: token.accessToken, expiresAt: now() + ttl});
-        respond(res, 303, {Location: page, 'Set-Cookie': [
-          cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
-        ]});
-      } else if (req.method === 'POST' && url.pathname === '/profile/logout') {
+        break;
+      }
+      case 'GET /profile/callback':
+        await finishLogin(req, res, url, user, page);
+        break;
+      case 'POST /profile/logout':
         revoke(req);
         respond(res, 204, {'Set-Cookie': cookie(sessionCookie, '', 0)});
-      } else if (req.method === 'POST' && url.pathname === '/profile/mcp-token') {
-        const session = current(req);
-        if (!secure || !session || !await access.can(session.accessToken, 'app:mcp')) {
-          respond(res, 403);
-          return true;
-        }
-        const id = cookieValue(req, sessionCookie);
-        const secret = random();
-        const digest = createHash('sha256').update(secret).digest('hex');
-        if (session.remoteDigest) remoteTokens.delete(session.remoteDigest);
-        session.remoteDigest = digest;
-        remoteTokens.set(digest, {id, expiresAt: session.expiresAt});
-        res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
-        res.end(JSON.stringify({token: `fyso-ext-biz.${secret}`, expiresAt: session.expiresAt}));
-      } else if (req.method === 'GET' && url.pathname === '/profile/access') {
+        break;
+      case 'POST /profile/mcp-token':
+        await issueRemoteToken(req, res);
+        break;
+      case 'GET /profile/access': {
         const session = current(req);
         const capabilities = session ? await access.capabilities(session.accessToken) : [];
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
         const remoteCredentialPath = secure && capabilities.includes('app:mcp')
           ? '/api/ext/biz/profile/mcp-token' : undefined;
         res.end(JSON.stringify({capabilities, remoteCredentialPath}));
-      } else if (req.method === 'GET' && url.pathname === '/profile/status') {
+        break;
+      }
+      case 'GET /profile/status':
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
         res.end(JSON.stringify({connected: Boolean(current(req))}));
-      } else {
+        break;
+      default:
         respond(res, 405);
       }
     } catch {

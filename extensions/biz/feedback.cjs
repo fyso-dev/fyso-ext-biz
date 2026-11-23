@@ -34,8 +34,9 @@ async function report(root, id) {
 }
 
 function validReceipt(receipt) {
-  return Number.isSafeInteger(receipt?.number) && receipt.number > 0 && typeof receipt.url === 'string' &&
-    new RegExp('^https://github[.]com/fyso-dev/agentic-framework/issues/' + receipt.number + '(#issuecomment-[0-9]+)?$').test(receipt.url);
+  if (!Number.isSafeInteger(receipt?.number) || receipt.number <= 0 || typeof receipt.url !== 'string') return false;
+  const match = /^https:\/\/github\.com\/fyso-dev\/agentic-framework\/issues\/([0-9]+)(?:#issuecomment-[0-9]+)?$/.exec(receipt.url);
+  return match?.[1] === String(receipt.number);
 }
 
 function receiptStore(env, id) {
@@ -124,31 +125,29 @@ function feedback({env, access, transport = fetch}) {
     if (!await report(env.FYSO_ROOT, id)) return [404, {error: 'report_not_found'}];
 
     const response = await requestBiz('POST', token, id, JSON.stringify({id, title, body, related}));
-    if (!response.ok) return [response.status === 409 ? 409 : response.status === 403 ? 403 : 502, {error: 'feedback_unavailable'}];
+    if (!response.ok) {
+      const status = [409, 403].includes(response.status) ? response.status : 502;
+      return [status, {error: 'feedback_unavailable'}];
+    }
     const receipt = await response.json();
     if (!validReceipt(receipt)) return [502, {error: 'invalid_receipt'}];
     return [200, await recordReceipt(id, store, receipt)];
   }
 
-  return async (req, res, url, session) => {
-    const send = (status, data) => {
-      res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'});
-      res.end(JSON.stringify(data));
-    };
-    if (!session || !await access.can(session.accessToken, CAPABILITY)) return send(403, {error: 'access_denied'});
-    if (req.method === 'GET') {
-      const id = url.searchParams.get('id');
-      if (!reportId(id)) return send(404, {error: 'report_not_found'});
-      if (submissions.has(id)) return send(409, {error: 'submission_pending'});
-      const {receipt, unavailable, failure} = await recoverReceipt(id, receiptStore(env, id), session.accessToken);
-      if (failure) return send(...failure);
-      if (unavailable) return send(503, RECEIPT_UNAVAILABLE);
-      if (receipt) return send(200, {id, receipt});
-      const local = await report(env.FYSO_ROOT, id);
-      if (!local) return send(404, {error: 'report_not_found'});
-      return send(200, local);
-    }
-    if (req.method !== 'POST') return send(405, {error: 'method_not_allowed'});
+  async function preview(url, token, send) {
+    const id = url.searchParams.get('id');
+    if (!reportId(id)) return send(404, {error: 'report_not_found'});
+    if (submissions.has(id)) return send(409, {error: 'submission_pending'});
+    const {receipt, unavailable, failure} = await recoverReceipt(id, receiptStore(env, id), token);
+    if (failure) return send(...failure);
+    if (unavailable) return send(503, RECEIPT_UNAVAILABLE);
+    if (receipt) return send(200, {id, receipt});
+    const local = await report(env.FYSO_ROOT, id);
+    if (!local) return send(404, {error: 'report_not_found'});
+    return send(200, local);
+  }
+
+  async function confirm(req, token, send) {
     if (req.headers.origin !== new URL(addresses(env).page).origin) return send(403, {error: 'access_denied'});
     if (req.headers['content-type']?.split(';')[0] !== 'application/json') return send(415, {error: 'invalid_feedback'});
     const chunks = [];
@@ -164,16 +163,27 @@ function feedback({env, access, transport = fetch}) {
     const {id, title, body, related} = input ?? {};
     if (!reportId(id) || typeof title !== 'string' || typeof body !== 'string' ||
         (related !== undefined && (!reportId(related) || id === related))) return send(400, {error: 'invalid_feedback'});
-    const confirmation = JSON.stringify([session.accessToken, title, body, related]);
+    const confirmation = JSON.stringify([token, title, body, related]);
     const active = submissions.get(id);
     if (active) {
       if (active.confirmation !== confirmation) return send(409, {error: 'confirmation_in_progress'});
       return send(...await active.result);
     }
-    const result = submit({id, title, body, related}, session.accessToken)
+    const result = submit({id, title, body, related}, token)
       .finally(() => submissions.delete(id));
     submissions.set(id, {confirmation, result});
     send(...await result);
+  }
+
+  return async (req, res, url, session) => {
+    const send = (status, data) => {
+      res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'});
+      res.end(JSON.stringify(data));
+    };
+    if (!session || !await access.can(session.accessToken, CAPABILITY)) return send(403, {error: 'access_denied'});
+    if (req.method === 'GET') return preview(url, session.accessToken, send);
+    if (req.method === 'POST') return confirm(req, session.accessToken, send);
+    return send(405, {error: 'method_not_allowed'});
   };
 }
 
