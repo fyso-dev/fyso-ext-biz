@@ -133,16 +133,17 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const callback = new URL('/extensions/biz/oauth/callback', addresses(env).page).href;
         const request = await auth.beginProfile(callback);
         const destination = new URL(request.url);
-        const bizOrigin = origin(env.FYSO_BIZ_URL || '');
-        if (destination.origin !== bizOrigin || destination.protocol !== new URL(bizOrigin).protocol) {
-          throw Error('invalid_authorization_url');
+        const location = new URL(origin(env.FYSO_BIZ_URL || ''));
+        if (destination.origin !== location.origin || destination.protocol !== location.protocol) {
+          throw new Error('invalid_authorization_url');
         }
-        const location = bizOrigin + destination.pathname + destination.search;
+        location.pathname = destination.pathname;
+        location.search = destination.search;
         const binding = random();
         pending.set(request.state, {request, user, binding, expiresAt: now() + LOGIN_TTL});
         res.writeHead(303, {
           'Cache-Control': 'no-store',
-          Location: location,
+          Location: location.href,
           'Set-Cookie': cookie(bindingCookie, binding, LOGIN_TTL),
         }).end();
         break;
