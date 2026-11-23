@@ -35,7 +35,7 @@ test('binds the one-time OAuth callback and session to the authenticated browser
     auth: {
       async beginProfile(callback) {
         assert.equal(callback, 'https://panel.demo.test/extensions/biz/oauth/callback');
-        return {state: 'test-state', url: 'https://biz.test/authorize?state=test-state&code_challenge=challenge'};
+        return {state: 'test-state', url: 'https://biz.test/oauth/authorize?state=test-state&code_challenge=challenge'};
       },
       async finishProfile(_, code) {
         assert.equal(code, 'oauth-code');
@@ -54,7 +54,7 @@ test('binds the one-time OAuth callback and session to the authenticated browser
   });
   const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
   assert.equal(login.status, 303);
-  assert.equal(login.headers.Location, 'https://biz.test/authorize?state=test-state&code_challenge=challenge');
+  assert.equal(login.headers.Location, 'https://biz.test/oauth/authorize?state=test-state&code_challenge=challenge');
   const binding = login.headers['Set-Cookie'];
   assert.match(binding, /^__Host-.*; Path=\/; HttpOnly; SameSite=Lax; Max-Age=600; Secure$/);
   const callback = '/profile/callback?state=test-state&code=oauth-code';
@@ -93,18 +93,20 @@ test('binds the one-time OAuth callback and session to the authenticated browser
   assert.equal(profiles.current(request('/', 'ana', {cookie: session})), null);
 });
 
-test('does not redirect the browser to an authorization URL outside Biz', async () => {
-  const profiles = profileSessions({
-    env, access: {},
-    auth: {async beginProfile() {
-      return {state: 'test-state', url: 'https://other.test/authorize'};
-    }},
+for (const url of ['https://other.test/oauth/authorize', 'https://biz.test/other']) {
+  test(`rejects the authorization URL ${url}`, async () => {
+    const profiles = profileSessions({
+      env, access: {},
+      auth: {async beginProfile() {
+        return {state: 'test-state', url};
+      }},
+    });
+    const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
+    assert.equal(login.status, 502);
+    assert.equal(login.headers.Location, undefined);
+    assert.equal(login.headers['Set-Cookie'], undefined);
   });
-  const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
-  assert.equal(login.status, 502);
-  assert.equal(login.headers.Location, undefined);
-  assert.equal(login.headers['Set-Cookie'], undefined);
-});
+}
 
 test('requires a gateway identity on profile routes', async () => {
   const profiles = profileSessions({env, auth: {}, access: {}});

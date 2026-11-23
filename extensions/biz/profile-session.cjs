@@ -5,6 +5,7 @@ const {projectAccess} = require('./project-access.cjs');
 
 const LOGIN_TTL = 10 * 60 * 1000;
 const SESSION_TTL = 60 * 60 * 1000;
+const AUTHORIZATION_PATH = '/oauth/authorize';
 const random = () => randomBytes(32).toString('base64url');
 
 const messages = {
@@ -133,17 +134,18 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const callback = new URL('/extensions/biz/oauth/callback', addresses(env).page).href;
         const request = await auth.beginProfile(callback);
         const destination = new URL(request.url);
-        const location = new URL(origin(env.FYSO_BIZ_URL || ''));
-        if (destination.origin !== location.origin || destination.protocol !== location.protocol) {
+        const bizOrigin = origin(env.FYSO_BIZ_URL || '');
+        if (destination.origin !== bizOrigin ||
+            destination.protocol !== new URL(bizOrigin).protocol ||
+            destination.pathname !== AUTHORIZATION_PATH) {
           throw new Error('invalid_authorization_url');
         }
-        location.pathname = destination.pathname;
-        location.search = destination.search;
+        const query = destination.searchParams.toString();
         const binding = random();
         pending.set(request.state, {request, user, binding, expiresAt: now() + LOGIN_TTL});
         res.writeHead(303, {
           'Cache-Control': 'no-store',
-          Location: location.href,
+          Location: `${bizOrigin}${AUTHORIZATION_PATH}?${query}`,
           'Set-Cookie': cookie(bindingCookie, binding, LOGIN_TTL),
         }).end();
         break;
