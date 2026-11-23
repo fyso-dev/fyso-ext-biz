@@ -40,20 +40,27 @@ function validReceipt(receipt) {
 
 function receiptStore(env, id) {
   const folder = path.join(env.FYSO_DATA, 'ext', 'biz', 'feedback');
-  const scope = createHash('sha256').update(JSON.stringify([
-    env.FYSO_BIZ_URL, env.FYSO_BIZ_ACCESS_ORGANIZATION, env.FYSO_BIZ_ACCESS_PROJECT,
-  ])).digest('hex');
-  const file = path.join(folder, scope + '-' + id + '.json');
+  const bizOrigin = origin(env.FYSO_BIZ_URL || '');
+  const files = Array.from(new Set([bizOrigin, env.FYSO_BIZ_URL, bizOrigin + '/']), url => {
+    const scope = createHash('sha256').update(JSON.stringify([
+      url, env.FYSO_BIZ_ACCESS_ORGANIZATION, env.FYSO_BIZ_ACCESS_PROJECT,
+    ])).digest('hex');
+    return path.join(folder, scope + '-' + id + '.json');
+  });
   return {
     async read() {
-      try {
-        const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-        return validReceipt(saved) ? {receipt: saved} : {unavailable: true};
-      } catch (error) {
-        return error.code === 'ENOENT' ? {} : {unavailable: true};
+      for (const file of files) {
+        try {
+          const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+          return validReceipt(saved) ? {receipt: saved} : {unavailable: true};
+        } catch (error) {
+          if (error.code !== 'ENOENT') return {unavailable: true};
+        }
       }
+      return {};
     },
     async save(value) {
+      const [file] = files;
       await fs.mkdir(folder, {recursive: true, mode: 0o700});
       const temporary = file + '.' + randomUUID();
       try {

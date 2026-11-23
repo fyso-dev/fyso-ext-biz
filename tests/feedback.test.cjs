@@ -23,8 +23,8 @@ async function fixture(t, beforeResponse = async () => {}) {
     FYSO_WEB_DOMAIN: 'preview.example', FYSO_WEB_SCHEME: 'https',
   };
   let posted = 0;
-  const handle = feedback({
-    env,
+  const createHandler = (bizUrl = env.FYSO_BIZ_URL) => feedback({
+    env: {...env, FYSO_BIZ_URL: bizUrl},
     access: {can: async (token, capability) => token === 'person' && capability === 'action:feedback:submit'},
     transport: async (target, init) => {
       posted++;
@@ -35,6 +35,7 @@ async function fixture(t, beforeResponse = async () => {}) {
       return Response.json({number: 24, url}, {status: 201});
     },
   });
+  let handle = createHandler();
   async function call(method, token, origin = 'https://panel.preview.example', report = id) {
     const req = Readable.from(method === 'POST' ? [Buffer.from(JSON.stringify({id: report, title: 'Reviewed', body: 'Sanitized'}))] : []);
     Object.assign(req, {method, headers: {origin, 'content-type': 'application/json'}});
@@ -45,8 +46,19 @@ async function fixture(t, beforeResponse = async () => {}) {
     }, new URL('/profile/feedback?id=' + report, 'https://panel.preview.example'), {accessToken: token});
     return {status, result};
   }
-  return {call, root, reportPath, posted: () => posted};
+  return {call, root, reportPath, posted: () => posted, restart: bizUrl => {handle = createHandler(bizUrl);}};
 }
+
+test('reuses a saved receipt after restarting with an equivalent Biz URL', async t => {
+  const {call, posted, restart} = await fixture(t);
+  restart('https://fyso.biz/');
+  const receipt = {number: 24, url};
+  assert.deepEqual(await call('POST', 'person'), {status: 200, result: receipt});
+  restart('https://FYSO.BIZ:443');
+  assert.deepEqual(await call('GET', 'person'), {status: 200, result: {id, receipt}});
+  assert.deepEqual(await call('POST', 'person'), {status: 200, result: receipt});
+  assert.equal(posted(), 1);
+});
 
 test('reviews a local report, checks the individual grant and origin, and saves the receipt', async t => {
   const {call, posted} = await fixture(t);
