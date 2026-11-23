@@ -1,6 +1,6 @@
 const {feedback} = require('./feedback.cjs');
 const {createHash, randomBytes} = require('node:crypto');
-const {addresses, store} = require('./auth.cjs');
+const {addresses, origin, store} = require('./auth.cjs');
 const {projectAccess} = require('./project-access.cjs');
 
 const LOGIN_TTL = 10 * 60 * 1000;
@@ -132,9 +132,19 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       case 'POST /profile/login': {
         const callback = new URL('/extensions/biz/oauth/callback', addresses(env).page).href;
         const request = await auth.beginProfile(callback);
+        const destination = new URL(request.url);
+        const bizOrigin = origin(env.FYSO_BIZ_URL || '');
+        if (destination.origin !== bizOrigin || destination.protocol !== new URL(bizOrigin).protocol) {
+          throw Error('invalid_authorization_url');
+        }
+        const location = bizOrigin + destination.pathname + destination.search;
         const binding = random();
         pending.set(request.state, {request, user, binding, expiresAt: now() + LOGIN_TTL});
-        respond(res, 303, {Location: request.url, 'Set-Cookie': cookie(bindingCookie, binding, LOGIN_TTL)});
+        res.writeHead(303, {
+          'Cache-Control': 'no-store',
+          Location: location,
+          'Set-Cookie': cookie(bindingCookie, binding, LOGIN_TTL),
+        }).end();
         break;
       }
       case 'GET /profile/callback':
