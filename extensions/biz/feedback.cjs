@@ -40,27 +40,20 @@ function validReceipt(receipt) {
 
 function receiptStore(env, id) {
   const folder = path.join(env.FYSO_DATA, 'ext', 'biz', 'feedback');
-  const bizOrigin = origin(env.FYSO_BIZ_URL || '');
-  const files = Array.from(new Set([bizOrigin, env.FYSO_BIZ_URL, bizOrigin + '/']), url => {
-    const scope = createHash('sha256').update(JSON.stringify([
-      url, env.FYSO_BIZ_ACCESS_ORGANIZATION, env.FYSO_BIZ_ACCESS_PROJECT,
-    ])).digest('hex');
-    return path.join(folder, scope + '-' + id + '.json');
-  });
+  const scope = createHash('sha256').update(JSON.stringify([
+    origin(env.FYSO_BIZ_URL || ''), env.FYSO_BIZ_ACCESS_ORGANIZATION, env.FYSO_BIZ_ACCESS_PROJECT,
+  ])).digest('hex');
+  const file = path.join(folder, scope + '-' + id + '.json');
   return {
     async read() {
-      for (const file of files) {
-        try {
-          const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-          return validReceipt(saved) ? {receipt: saved} : {unavailable: true};
-        } catch (error) {
-          if (error.code !== 'ENOENT') return {unavailable: true};
-        }
+      try {
+        const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+        return validReceipt(saved) ? {receipt: saved} : {unavailable: true};
+      } catch (error) {
+        return error.code === 'ENOENT' ? {} : {unavailable: true};
       }
-      return {};
     },
     async save(value) {
-      const [file] = files;
       await fs.mkdir(folder, {recursive: true, mode: 0o700});
       const temporary = file + '.' + randomUUID();
       try {
@@ -85,30 +78,56 @@ function feedback({env, access, transport = fetch}) {
     }
   }
 
-  async function recoverReceipt(id, store) {
+  function requestBiz(method, token, id, payload) {
+    const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
+    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
+    const headers = {Authorization: `Bearer ${token}`};
+    if (method === 'GET') target.searchParams.set('id', id);
+    else headers['Content-Type'] = 'application/json';
+    return transport(target, {
+      method, redirect: 'error', signal: AbortSignal.timeout(30000), headers,
+      body: payload,
+    });
+  }
+
+  function recordReceipt(id, store, receipt) {
+    pendingReceipts.set(id, receipt);
+    return persistReceipt(id, store, receipt);
+  }
+
+  async function recoverReceipt(id, store, token) {
     const pending = pendingReceipts.get(id);
-    return pending ? {receipt: await persistReceipt(id, store, pending)} : store.read();
+    if (pending) return {receipt: await persistReceipt(id, store, pending)};
+    const local = await store.read();
+    if (local.receipt) return local;
+    try {
+      const response = await requestBiz('GET', token, id);
+      if (response.status === 404) return local;
+      if (response.status === 409) return {failure: [409, {error: 'submission_pending'}]};
+      if (response.status === 403 || response.status === 401) return {failure: [403, {error: 'access_denied'}]};
+      if (response.ok) {
+        const receipt = await response.json();
+        if (validReceipt(receipt)) return {receipt: await recordReceipt(id, store, receipt)};
+      }
+    } catch {
+      return {unavailable: true};
+    }
+    return {unavailable: true};
   }
 
   async function submit({id, title, body, related}, token) {
     const store = receiptStore(env, id);
-    const {receipt: existing, unavailable} = await recoverReceipt(id, store);
+    const {receipt: existing, unavailable, failure} = await recoverReceipt(id, store, token);
+    if (failure) return failure;
     if (unavailable) return [503, RECEIPT_UNAVAILABLE];
-    if (existing) return [200, existing];
+    if (existing) return [409, {error: 'already_published', receipt: existing}];
     if (!await report(env.FYSO_ROOT, id)) return [404, {error: 'report_not_found'}];
 
-    const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
-    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
-    const response = await transport(target, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
-      headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
-      body: JSON.stringify({id, title, body, related}),
-    });
+    const response = await requestBiz('POST', token, id, JSON.stringify({id, title, body, related}));
     if (!response.ok) return [response.status === 409 ? 409 : response.status === 403 ? 403 : 502, {error: 'feedback_unavailable'}];
     const receipt = await response.json();
     if (!validReceipt(receipt)) return [502, {error: 'invalid_receipt'}];
-    pendingReceipts.set(id, receipt);
-    return [200, await persistReceipt(id, store, receipt)];
+    return [200, await recordReceipt(id, store, receipt)];
   }
 
   return async (req, res, url, session) => {
@@ -120,7 +139,9 @@ function feedback({env, access, transport = fetch}) {
     if (req.method === 'GET') {
       const id = url.searchParams.get('id');
       if (!reportId(id)) return send(404, {error: 'report_not_found'});
-      const {receipt, unavailable} = await recoverReceipt(id, receiptStore(env, id));
+      if (submissions.has(id)) return send(409, {error: 'submission_pending'});
+      const {receipt, unavailable, failure} = await recoverReceipt(id, receiptStore(env, id), session.accessToken);
+      if (failure) return send(...failure);
       if (unavailable) return send(503, RECEIPT_UNAVAILABLE);
       if (receipt) return send(200, {id, receipt});
       const local = await report(env.FYSO_ROOT, id);
@@ -143,13 +164,16 @@ function feedback({env, access, transport = fetch}) {
     const {id, title, body, related} = input ?? {};
     if (!reportId(id) || typeof title !== 'string' || typeof body !== 'string' ||
         (related !== undefined && (!reportId(related) || id === related))) return send(400, {error: 'invalid_feedback'});
-    let submission = submissions.get(id);
-    if (!submission) {
-      submission = submit({id, title, body, related}, session.accessToken)
-        .finally(() => submissions.delete(id));
-      submissions.set(id, submission);
+    const confirmation = JSON.stringify([session.accessToken, title, body, related]);
+    const active = submissions.get(id);
+    if (active) {
+      if (active.confirmation !== confirmation) return send(409, {error: 'confirmation_in_progress'});
+      return send(...await active.result);
     }
-    send(...await submission);
+    const result = submit({id, title, body, related}, session.accessToken)
+      .finally(() => submissions.delete(id));
+    submissions.set(id, {confirmation, result});
+    send(...await result);
   };
 }
 

@@ -146,5 +146,7 @@ In a Biz-managed project, **Report to Fyso** opens a local `fyso_feedback`
 report for review and sends the reviewed text to the framework's GitHub
 repository. Grant users `app:panel`, `page:extension:biz` and
 `action:feedback:submit` in their Biz project access level. The page accepts a
-related report ID for corrections and displays the GitHub receipt after
-submission. See the [AF setup and verification guide](https://github.com/fyso-dev/agentic-framework/blob/main/docs/biz-feedback-delivery.md).
+related report ID entered by the reviewer for corrections and displays the
+GitHub receipt after submission. Coordinate rollout with the AF merge that
+publishes the [AF setup and verification guide](https://github.com/fyso-dev/agentic-framework/blob/main/docs/biz-feedback-delivery.md)
+and with availability of the authenticated Biz receipt lookup.
