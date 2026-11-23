@@ -68,10 +68,10 @@ el('load').addEventListener('submit', event => {
     const response = await fetch(api + '?id=' + id);
     if (!response.ok) return showError(response.status);
     current = await response.json();
+    if (current.receipt) return showReceipt(current.receipt);
     el('title').value = current.title;
     el('body').value = current.body;
     el('related').value = current.body.match(/^[-*] Related report:\s*(project\/wiki\/feedback\/[0-9a-f-]+\.md)\s*$/m)?.[1] || '';
-    if (current.receipt) return showReceipt(current.receipt);
     el('send').hidden = false;
   });
 });

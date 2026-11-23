@@ -63,6 +63,7 @@ function receiptStore(env, id) {
 
 function feedback({env, access, transport = fetch}) {
   const pendingReceipts = new Map();
+  const submissions = new Map();
 
   async function persistReceipt(id, store, receipt) {
     try {
@@ -79,6 +80,26 @@ function feedback({env, access, transport = fetch}) {
     return pending ? persistReceipt(id, store, pending) : store.read();
   }
 
+  async function submit({id, title, body, related}, token) {
+    const store = receiptStore(env, id);
+    const existing = await recoverReceipt(id, store);
+    if (existing) return [200, existing];
+    if (!await report(env.FYSO_ROOT, id)) return [404, {error: 'report_not_found'}];
+
+    const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
+    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
+    const response = await transport(target, {
+      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
+      headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({id, title, body, related}),
+    });
+    if (!response.ok) return [response.status === 409 ? 409 : response.status === 403 ? 403 : 502, {error: 'feedback_unavailable'}];
+    const receipt = await response.json();
+    if (!validReceipt(receipt)) return [502, {error: 'invalid_receipt'}];
+    pendingReceipts.set(id, receipt);
+    return [200, await persistReceipt(id, store, receipt)];
+  }
+
   return async (req, res, url, session) => {
     const send = (status, data) => {
       res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'});
@@ -86,9 +107,12 @@ function feedback({env, access, transport = fetch}) {
     };
     if (!session || !await access.can(session.accessToken, CAPABILITY)) return send(403, {error: 'access_denied'});
     if (req.method === 'GET') {
-      const local = await report(env.FYSO_ROOT, url.searchParams.get('id'));
-      if (!local) return send(404, {error: 'report_not_found'});
-      return send(200, {...local, receipt: await recoverReceipt(local.id, receiptStore(env, local.id))});
+      const id = url.searchParams.get('id');
+      if (!reportId(id)) return send(404, {error: 'report_not_found'});
+      const receipt = await recoverReceipt(id, receiptStore(env, id));
+      const local = await report(env.FYSO_ROOT, id);
+      if (!local && !receipt) return send(404, {error: 'report_not_found'});
+      return send(200, {id, ...local, receipt});
     }
     if (req.method !== 'POST') return send(405, {error: 'method_not_allowed'});
     if (req.headers.origin !== new URL(addresses(env).page).origin) return send(403, {error: 'access_denied'});
@@ -106,24 +130,13 @@ function feedback({env, access, transport = fetch}) {
     const {id, title, body, related} = input ?? {};
     if (!reportId(id) || typeof title !== 'string' || typeof body !== 'string' ||
         (related !== undefined && (!reportId(related) || id === related))) return send(400, {error: 'invalid_feedback'});
-    if (!await report(env.FYSO_ROOT, id)) return send(404, {error: 'report_not_found'});
-
-    const store = receiptStore(env, id);
-    const existing = await recoverReceipt(id, store);
-    if (existing) return send(200, existing);
-
-    const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
-    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
-    const response = await transport(target, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30000),
-      headers: {Authorization: `Bearer ${session.accessToken}`, 'Content-Type': 'application/json'},
-      body: JSON.stringify({id, title, body, related}),
-    });
-    if (!response.ok) return send(response.status === 409 ? 409 : response.status === 403 ? 403 : 502, {error: 'feedback_unavailable'});
-    const receipt = await response.json();
-    if (!validReceipt(receipt)) return send(502, {error: 'invalid_receipt'});
-    pendingReceipts.set(id, receipt);
-    send(200, await persistReceipt(id, store, receipt));
+    let submission = submissions.get(id);
+    if (!submission) {
+      submission = submit({id, title, body, related}, session.accessToken)
+        .finally(() => submissions.delete(id));
+      submissions.set(id, submission);
+    }
+    send(...await submission);
   };
 }
 
