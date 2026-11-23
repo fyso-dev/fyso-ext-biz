@@ -8,7 +8,7 @@ const {feedback} = require('../extensions/biz/feedback.cjs');
 const id = '28056ceb-01f7-45d2-a813-4bb5c2446310';
 const url = 'https://github.com/fyso-dev/agentic-framework/issues/24';
 
-test('reviews a local report, checks the individual grant and origin, and saves the receipt', async t => {
+async function fixture(t) {
   const root = await fs.mkdtemp(path.join(require('node:os').tmpdir(), 'af-report-'));
   t.after(() => fs.rm(root, {recursive: true, force: true}));
   const folder = path.join(root, 'project/wiki/feedback');
@@ -42,12 +42,31 @@ test('reviews a local report, checks the individual grant and origin, and saves 
     }, new URL('/profile/feedback?id=' + report, 'https://panel.preview.example'), {accessToken: token});
     return {status, result};
   }
+  return {call, root, posted: () => posted};
+}
+
+test('reviews a local report, checks the individual grant and origin, and saves the receipt', async t => {
+  const {call, posted} = await fixture(t);
   assert.equal((await call('GET', 'installation')).status, 403);
   assert.equal((await call('POST', 'person', 'https://foreign.example')).status, 403);
   assert.equal((await call('GET', 'person', undefined, '../outside')).status, 404);
   assert.equal((await call('GET', 'person')).result.body, 'Component: Panel\n\nEvidence');
-  assert.equal(posted, 0);
+  assert.equal(posted(), 0);
   assert.deepEqual(await call('POST', 'person'), {status: 200, result: {number: 24, url}});
   assert.deepEqual((await call('GET', 'person')).result.receipt, {number: 24, url});
-  assert.equal(posted, 1);
+  assert.equal(posted(), 1);
+});
+
+test('recovers a confirmed receipt after a local write failure without publishing again', async t => {
+  const {call, root, posted} = await fixture(t);
+  const cache = path.join(root, '.data');
+  await fs.writeFile(cache, '');
+  const pending = {number: 24, url, persistencePending: true};
+  assert.deepEqual(await call('POST', 'person'), {status: 200, result: pending});
+  assert.deepEqual((await call('GET', 'person')).result.receipt, pending);
+  assert.deepEqual(await call('POST', 'person'), {status: 200, result: pending});
+  await fs.unlink(cache);
+  assert.deepEqual((await call('GET', 'person')).result.receipt, {number: 24, url});
+  assert.deepEqual(await call('POST', 'person'), {status: 200, result: {number: 24, url}});
+  assert.equal(posted(), 1);
 });

@@ -9,6 +9,7 @@ const locales = {
     error: 'No se pudo completar la operación. Podés volver a intentarlo.',
     pending: 'El envío está pendiente de confirmación. Revisá el estado antes de crear otro reporte.',
     sent: 'Reporte recibido en GitHub.',
+    persistencePending: 'GitHub recibió el reporte. Volvé a revisarlo para guardar el recibo localmente.',
   },
   en: {
     heading: 'Report to Fyso', 'report-label': 'Local report path or ID',
@@ -20,6 +21,7 @@ const locales = {
     error: 'The operation could not be completed. You can try again.',
     pending: 'The submission is awaiting confirmation. Check its status before creating another report.',
     sent: 'GitHub received the report.',
+    persistencePending: 'GitHub received the report. Review it again to save the receipt locally.',
   },
 };
 const lang = navigator.language.startsWith('en') ? 'en' : 'es';
@@ -50,7 +52,7 @@ function showError(status) {
 }
 
 function showReceipt(receipt) {
-  el('status').textContent = copy.sent;
+  el('status').textContent = receipt.persistencePending ? copy.persistencePending : copy.sent;
   el('issue').href = receipt.url;
   el('issue').textContent = '#' + receipt.number;
   el('issue').hidden = false;

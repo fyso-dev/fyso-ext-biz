@@ -62,6 +62,23 @@ function receiptStore(env, id) {
 }
 
 function feedback({env, access, transport = fetch}) {
+  const pendingReceipts = new Map();
+
+  async function persistReceipt(id, store, receipt) {
+    try {
+      await store.save(receipt);
+      pendingReceipts.delete(id);
+      return receipt;
+    } catch {
+      return {...receipt, persistencePending: true};
+    }
+  }
+
+  async function recoverReceipt(id, store) {
+    const pending = pendingReceipts.get(id);
+    return pending ? persistReceipt(id, store, pending) : store.read();
+  }
+
   return async (req, res, url, session) => {
     const send = (status, data) => {
       res.writeHead(status, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'});
@@ -71,7 +88,7 @@ function feedback({env, access, transport = fetch}) {
     if (req.method === 'GET') {
       const local = await report(env.FYSO_ROOT, url.searchParams.get('id'));
       if (!local) return send(404, {error: 'report_not_found'});
-      return send(200, {...local, receipt: await receiptStore(env, local.id).read()});
+      return send(200, {...local, receipt: await recoverReceipt(local.id, receiptStore(env, local.id))});
     }
     if (req.method !== 'POST') return send(405, {error: 'method_not_allowed'});
     if (req.headers.origin !== new URL(addresses(env).page).origin) return send(403, {error: 'access_denied'});
@@ -91,6 +108,10 @@ function feedback({env, access, transport = fetch}) {
         (related !== undefined && (!reportId(related) || id === related))) return send(400, {error: 'invalid_feedback'});
     if (!await report(env.FYSO_ROOT, id)) return send(404, {error: 'report_not_found'});
 
+    const store = receiptStore(env, id);
+    const existing = await recoverReceipt(id, store);
+    if (existing) return send(200, existing);
+
     const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
     target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
     const response = await transport(target, {
@@ -101,8 +122,8 @@ function feedback({env, access, transport = fetch}) {
     if (!response.ok) return send(response.status === 409 ? 409 : response.status === 403 ? 403 : 502, {error: 'feedback_unavailable'});
     const receipt = await response.json();
     if (!validReceipt(receipt)) return send(502, {error: 'invalid_receipt'});
-    await receiptStore(env, id).save(receipt);
-    send(200, receipt);
+    pendingReceipts.set(id, receipt);
+    send(200, await persistReceipt(id, store, receipt));
   };
 }
 
