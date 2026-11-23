@@ -64,7 +64,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     }
   }
 
-  async function finishLogin(req, res, url, user, page) {
+  async function finishLogin(req, res, url, user) {
     const state = url.searchParams.get('state');
     const entry = pending.get(state);
     if (!entry || entry.user !== user || entry.binding !== cookieValue(req, bindingCookie)) {
@@ -81,7 +81,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     revoke(req);
     const id = random();
     sessions.set(id, {...identity, user, accessToken: token.accessToken, expiresAt: now() + ttl});
-    respond(res, 303, {Location: page, 'Set-Cookie': [
+    respond(res, 303, {Location: '/#/extensions/biz/overview', 'Set-Cookie': [
       cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
     ]});
   }
@@ -120,7 +120,6 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     if (typeof user !== 'string' || !user) { respond(res, 401); return true; }
     expireSessions();
 
-    const page = addresses(env).page;
     try {
       if (url.pathname === '/profile/feedback') {
         await submitFeedback(req, res, url, current(req));
@@ -131,7 +130,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         signInPage(req, res);
         break;
       case 'POST /profile/login': {
-        const callback = new URL('/extensions/biz/oauth/callback', page).href;
+        const callback = new URL('/extensions/biz/oauth/callback', addresses(env).page).href;
         const request = await auth.beginProfile(callback);
         const binding = random();
         pending.set(request.state, {request, user, binding, expiresAt: now() + LOGIN_TTL});
@@ -139,7 +138,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         break;
       }
       case 'GET /profile/callback':
-        await finishLogin(req, res, url, user, page);
+        await finishLogin(req, res, url, user);
         break;
       case 'POST /profile/logout':
         revoke(req);

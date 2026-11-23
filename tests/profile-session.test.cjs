@@ -61,6 +61,7 @@ test('binds the one-time OAuth callback and session to the authenticated browser
   assert.equal((await invoke(profiles, request(callback, 'luis', {cookie}))).status, 400);
   const connected = await invoke(profiles, request(callback, 'ana', {cookie}));
   assert.equal(connected.status, 303);
+  assert.equal(connected.headers.Location, '/#/extensions/biz/overview');
   assert.equal((await invoke(profiles, request(callback, 'ana', {cookie}))).status, 400);
 
   const sessionCookie = connected.headers['Set-Cookie'][1];

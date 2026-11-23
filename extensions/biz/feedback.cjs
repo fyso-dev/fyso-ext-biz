@@ -35,7 +35,7 @@ async function report(root, id) {
 
 function validReceipt(receipt) {
   if (!Number.isSafeInteger(receipt?.number) || receipt.number <= 0 || typeof receipt.url !== 'string') return false;
-  const match = /^https:\/\/github\.com\/fyso-dev\/agentic-framework\/issues\/([0-9]+)(?:#issuecomment-[0-9]+)?$/.exec(receipt.url);
+  const match = /^https:\/\/github\.com\/fyso-dev\/agentic-framework\/issues\/(\d+)(?:#issuecomment-\d+)?$/.exec(receipt.url);
   return match?.[1] === String(receipt.number);
 }
 
