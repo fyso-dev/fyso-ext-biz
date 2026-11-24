@@ -214,6 +214,7 @@
     "syncRenamed": "In this project it is called «{{local}}». The Biz name leads: restore it or propose the new name.",
     "syncRestoreName": "Restore «{{name}}»",
     "syncProposeName": "Propose «{{name}}»",
+    "syncManaged": "Fyso Business manages this department for this project: changes are made there.",
     "syncProposalsNotSupported": "Your Fyso Business does not accept change proposals yet."
   }
 }

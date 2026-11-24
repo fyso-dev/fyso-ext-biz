@@ -23,6 +23,19 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
   const [status, setStatus] = useState<BizSyncStatus>();
   const [active, setActive] = useState<string>();
   const [message, setMessage] = useState<{department:string; ok:boolean; text:string}>();
+  // Biz-managed access (project-policy.cjs): the person's capabilities; `null` when the
+  // project has no managed access (204) and every action stays as it is.
+  const [granted, setGranted] = useState<Set<string>|null>();
+  useEffect(()=>{
+    const controller = new AbortController();
+    fetch("/api/panel-access", {cache:"no-store", signal:controller.signal}).then(async response => {
+      if (response.status === 204) return setGranted(null);
+      const data = response.ok ? await response.json() : null;
+      setGranted(new Set(Array.isArray(data?.capabilities) ? data.capabilities.filter((c:unknown)=>typeof c === "string") : []));
+    }).catch(()=>{ if (!controller.signal.aborted) setGranted(new Set()); });
+    return ()=>controller.abort();
+  }, []);
+  const can = (capability:string) => granted === null || !!granted?.has(capability);
 
   const load = async () => { const result = await check.start({FYSO_BIZ_OP:"team-sync"}); setStatus(result ?? {error:"connection_failed"}); };
   // Checked again after every download or apply below (`version`).
@@ -65,7 +78,10 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
     {status && !status.error && !rows.length && <p className="mute">{t("biz.syncEmpty")}</p>}
     {rows.length > 0 && <ul className="biz-sync">{rows.map(d=>{
       const working = active === d.department;
-      const canPublish = status?.publishSupported !== false;
+      // A department Biz manages: proposing needs the team workflow, pulling or renaming applies bots.
+      const mayPropose = !d.managed || can("workflow:ext-biz-team:run");
+      const mayApply = !d.managed || can("workflow:fyso-bots-apply:run");
+      const canPublish = status?.publishSupported !== false && !d.managed;
       const proposal = d.proposal;
       return <li key={d.department} className="biz-sync-row">
         <div className="connector-heading">
@@ -73,6 +89,7 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
           <span className={`pill ${TONE[d.state]}`}>{t(`biz.syncStates.${d.state}`)}</span>
         </div>
         {d.remoteVersion !== null && <span className="hint">{t("biz.syncVersion", {version:d.remoteVersion})}</span>}
+        {d.managed && <p className="hint">{t("biz.syncManaged")}</p>}
         {d.localName && <p className="hint">{t("biz.syncRenamed", {local:d.localName})}</p>}
         {d.state === "conflict" && <p className="hint">{t("biz.syncConflictHint")}</p>}
         {d.state === "proposed" && <p className="hint" role="status">{t("biz.syncWaiting")}</p>}
@@ -85,15 +102,15 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
         <div className="connector-actions">
           {working && <span role="status" className="mute">{t(propose.phase === "running" ? "biz.syncProposing" : "biz.syncPublishing")}</span>}
           {!working && d.state === "unpublished" && canPublish && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendPublish(d.department)}>{t("biz.syncPublish")}</button>}
-          {!working && d.state === "propose" && canPropose && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncPropose")}</button>}
-          {!working && d.state === "pull" && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, false)}>{t("biz.syncPull", {version:d.remoteVersion})}</button>}
-          {!working && d.state === "pending_apply" && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncApplyPulled")}</button>}
-          {!working && d.state === "rejected" && d.equipoId && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
-          {!working && d.localName && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onRestoreName(d.equipoId!)}>{t("biz.syncRestoreName", {name:d.department})}</button>}
-          {!working && d.state === "renamed" && canPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncProposeName", {name:d.localName})}</button>}
+          {!working && d.state === "propose" && canPropose && mayPropose && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncPropose")}</button>}
+          {!working && d.state === "pull" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, false)}>{t("biz.syncPull", {version:d.remoteVersion})}</button>}
+          {!working && d.state === "pending_apply" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncApplyPulled")}</button>}
+          {!working && d.state === "rejected" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
+          {!working && d.localName && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onRestoreName(d.equipoId!)}>{t("biz.syncRestoreName", {name:d.department})}</button>}
+          {!working && d.state === "renamed" && canPropose && mayPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncProposeName", {name:d.localName})}</button>}
           {!working && d.state === "conflict" && d.equipoId && <>
-            <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>
-            {canPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, true)}>{t("biz.syncKeepMine")}</button>}
+            {mayApply && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
+            {canPropose && mayPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, true)}>{t("biz.syncKeepMine")}</button>}
           </>}
         </div>
       </li>;

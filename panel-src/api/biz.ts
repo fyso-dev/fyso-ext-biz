@@ -22,7 +22,9 @@ export type BizTeamPrepared = {team:{id:string;slug:string;nombre:string;version
 /** The last change proposal sent for a Biz department and Biz's decision on it. */
 export type BizProposal = {id:string; state:"pending"|"accepted"|"rejected"; base:number; reason:string|null; version:number|null};
 export type BizDepartmentSync = {department:string; localName:string|null; equipoId:string|null; version:number|null; remoteVersion:number|null;
-  state:"absent"|"unpublished"|"synced"|"pull"|"propose"|"proposed"|"rejected"|"renamed"|"conflict"|"pending_apply"; proposal:BizProposal|null};
+  state:"absent"|"unpublished"|"synced"|"pull"|"propose"|"proposed"|"rejected"|"renamed"|"conflict"|"pending_apply"; proposal:BizProposal|null;
+  /** Delivered by Biz-managed access (connection hook); its changes are made on Biz. */
+  managed?:boolean};
 export type BizSyncStatus = {publishSupported?:boolean; proposalsSupported?:boolean; departments?:BizDepartmentSync[]; error?:string};
 export type BizProposed = {department:string; equipoId:string; proposal:BizProposal; commit:string|null; error?:string};
 export type BizPublished = {department:string; equipoId:string; version:number; commit:string|null; error?:string};
