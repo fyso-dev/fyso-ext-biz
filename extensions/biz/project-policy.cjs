@@ -14,6 +14,8 @@ const shell = /^\/(?:index\.html|assets\/[a-z0-9_./-]+|favicon\.[a-z0-9]+)?$/i;
 const read = new Set(['GET', 'HEAD']);
 
 const exact = new Map([
+  ['GET /api/ext/biz/profile/feedback', 'action:feedback:submit'],
+  ['POST /api/ext/biz/profile/feedback', 'action:feedback:submit'],
   ['GET /api/omb/bots', 'action:bots:list'],
   ['GET /config/team.yaml', 'action:bots:read-team'],
   ['GET /config/observability.json', 'action:observability:read'],

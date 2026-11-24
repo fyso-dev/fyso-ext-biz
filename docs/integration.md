@@ -38,9 +38,23 @@ A downloaded Biz team becomes an OpenMausBot native team in `project/bots/team.y
 
 ## Privacy and identity
 
-The token stays in sops/process environment or `.data/ext/biz/`, never URL parameters, workflow params, browser storage, `.mcp.json` or generated page output. Gateway users share the connected token owner's department scope; separate projects are required for separate credentials. Dagu retains selected business fields under the project's access and retention rules.
+The project connection token stays in sops/process environment or `.data/ext/biz/`, never URL parameters, workflow params, browser storage, `.mcp.json` or generated page output. Gateway users share the connected token owner's department scope; separate projects are required for separate credentials. Dagu retains selected business fields under the project's access and retention rules.
 
 The page is trusted installed code on the authenticated project origin, not a separate identity or sandbox. Compiled assets import the shared SDK through native ES modules; source locales/styles remain owned by this repository.
+
+## Feedback receipt recovery
+
+The extension uses the signed-in person's Biz access token server-side for
+feedback. When it has no usable local receipt, it looks up the report with
+authenticated `GET /oauth/framework-feedback`, scoped by organization, project
+and report ID. A 404 means Biz has no receipt, a 409 means confirmation is
+pending, and an unavailable lookup blocks a new submission. An unreadable or
+invalid local receipt also blocks submission unless Biz can recover it.
+
+An available receipt can be returned after the local Markdown is archived.
+A first submission requires the local Markdown. If GitHub publication is
+confirmed but the local cache write fails, reopening the report retries
+receipt recovery and storage without another publication request.
 
 ## Compatibility and tests
 

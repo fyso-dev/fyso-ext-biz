@@ -1,5 +1,6 @@
 """Run the real Copier consumer against supported and unsupported hosts."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -34,12 +35,24 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/pages/overview.yaml').is_file())
             self.assertTrue((project / 'extensions/biz/bot.cjs').is_file())
             self.assertTrue((project / 'extensions/biz/process.yaml').is_file())
-            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml'):
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertFalse((project / 'extensions/biz' / name).exists(), name)
-            self.assertIn('biz.{$FYSO_WEB_DOMAIN}', (project / 'extensions/biz/Caddyfile').read_text())
-            self.assertIn('FYSO_EXT_BIZ_PORT = "6110"', (project / '.config/mise/conf.d/ext-biz.toml').read_text())
+            caddy = shutil.which('caddy')
+            if caddy:
+                fixture = project / 'Caddyfile'
+                fixture.write_text('(fyso_login) {\n\theader X-Fixture enabled\n}\nimport extensions/biz/Caddyfile\n')
+                adapted = subprocess.run([caddy, 'adapt', '--adapter', 'caddyfile', '--config', str(fixture)],
+                    cwd=project, capture_output=True, text=True, timeout=30,
+                    env={**os.environ, 'FYSO_WEB_DOMAIN': 'fixture.example', 'FYSO_HTTP_PORT': '6100',
+                         'FYSO_EXT_BIZ_PORT': '6110'})
+                self.assertEqual(adapted.returncode, 0, adapted.stderr)
+                servers = json.loads(adapted.stdout)['apps']['http']['servers']
+                hosts = {host for server in servers.values() for route in server['routes']
+                         for matcher in route.get('match', []) for host in matcher.get('host', [])}
+                self.assertIn('biz.fixture.example', hosts)
             self.assertFalse((project / 'extensions/biz/tinyauth.providers.yaml').exists())
             env = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())['env']
+            self.assertEqual(env['FYSO_EXT_BIZ_PORT'], '6110')
             self.assertNotIn('FYSO_WEB_SCHEME', env)
             mcp = json.loads((project / 'extensions/biz/mcp.json').read_text())
             # Bots reach Biz through the local allow-list proxy; no credential in .mcp.json.
@@ -65,7 +78,7 @@ class Packaging(unittest.TestCase):
             (api.parent / 'access-api.json').write_text('{"version":1}\n')
             result = self.copy(project, *data)
             self.assertEqual(result.returncode, 0, result.stderr)
-            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml'):
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertTrue((project / 'extensions/biz' / name).is_file(), name)
 
     def test_panel_publication_uses_the_existing_biz_installation(self):

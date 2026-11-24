@@ -139,3 +139,20 @@ names in the user's current permissions. For each workflow, grant
 and `workflow:<name>:read-outputs` to view outputs from a known run. Grant
 workflow execution only when the user can run that workflow with its
 supported parameters.
+
+### Report framework issues through Biz
+
+In a Biz-managed project, sign in to Biz and open **Report to Fyso**. Grant
+users `app:panel`, `page:extension:biz` and `action:feedback:submit` in their Biz
+project access level. Enter the local `fyso_feedback` report path or ID and
+select **Review report**. Confirm the displayed ID, remove private information
+from the title and content, and select **Send to GitHub**. For a correction,
+enter the original report's path or ID in the dedicated field before sending.
+
+The page shows the GitHub receipt after publication. If confirmation or local
+receipt storage is pending, use **Review report** with the same ID to check
+the status and recover the receipt. See [receipt recovery](docs/integration.md#feedback-receipt-recovery).
+
+Coordinate rollout with the AF merge that
+publishes the [AF setup and verification guide](https://github.com/fyso-dev/agentic-framework/blob/main/docs/biz-feedback-delivery.md)
+and with availability of the authenticated Biz receipt lookup.
