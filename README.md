@@ -74,6 +74,8 @@ A department travels as the framework's native package (`omb-team/1`: shared ins
 
 **The Biz name always wins.** On every sync the record takes the Biz team's current name, with or without a new version. A department renamed locally (found again by its bots) is shown under its Biz name: *Restore* prepares the team file with the Biz name for review and apply, and *Propose* sends the new name as a proposal. Design and the Biz contract: [docs/proposals.md](docs/proposals.md).
 
+**Biz-managed projects.** When the project is installed with Biz-managed access, the connection hook also delivers the teams Biz configured for the project (`proyectos_framework`): each is pulled, its bots are recorded as managed by Biz (`project/bots/managed.json`, framework `managed-bots.cjs` required) and applied through the panel's plan/apply. Rerunning the hook is a no-op while the versions match. In the Teams tab those departments show *managed by Fyso Business*, are never published, and offer proposals only with `workflow:ext-biz-team:run` and pull/restore only with `workflow:fyso-bots-apply:run`. See [docs/integration.md](docs/integration.md#bot-and-connection-lifecycle).
+
 Nothing merges concurrent edits. Credentials, memory and conversations never travel. See the framework's `docs/team-templates.md`.
 
 ## Project identity
