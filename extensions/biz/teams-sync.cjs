@@ -256,7 +256,7 @@ async function status({mcp, root, tpl = templates(root), departments, git, yaml}
     const proposal = record?.proposal ? {id: record.proposal.id, state: record.proposal.state, base: record.proposal.base,
       reason: record.proposal.reason ?? null, version: record.proposal.version ?? null} : null;
     rows.push({department: entry?.[0] ?? name, localName, equipoId: record?.equipoId ?? null, version: record?.version ?? null,
-      remoteVersion, state: action, proposal});
+      remoteVersion, state: action, proposal, ...(record?.managed && {managed: true})});
   }
   // Record it, or the next local change would still read as a pull waiting for apply.
   if (adopted.length || settled.length || renamed.length || decided) {
@@ -396,7 +396,8 @@ async function pull({mcp, root, tpl = templates(root), equipoId, overwrite = fal
   }
   const imported = await tpl.importPackage(pkg, {root, source: {kind: 'biz', equipoId, version: Number(exported.equipo?.version)}});
   const name = entry?.[0] ?? pkg.departamento;
-  state.departments[name] = {equipoId: String(equipoId), version: Number(exported.equipo?.version), digest: tpl.digest(pkg), pending: true, bots: botsOf(pkg, yaml)};
+  state.departments[name] = {equipoId: String(equipoId), version: Number(exported.equipo?.version), digest: tpl.digest(pkg), pending: true, bots: botsOf(pkg, yaml),
+    ...(record?.managed && {managed: true})};
   const commit = saveState(root, state, `biz: pull department ${name} v${exported.equipo?.version}`, git);
   return {department: name, version: Number(exported.equipo?.version), commit, files: imported.commit,
     // The panel's download preview: the Biz team, the agents and the skills that arrive.
