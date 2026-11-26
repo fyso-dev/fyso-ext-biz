@@ -55,6 +55,7 @@ class Packaging(unittest.TestCase):
             self.assertFalse((project / 'extensions/biz/tinyauth.providers.yaml').exists())
             env = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())['env']
             self.assertEqual(env['FYSO_EXT_BIZ_PORT'], '6110')
+            self.assertEqual(env['FYSO_BIZ_PEOPLE_PROJECT'], '')
             self.assertNotIn('FYSO_WEB_SCHEME', env)
             mcp = json.loads((project / 'extensions/biz/mcp.json').read_text())
             # Bots reach Biz through the local allow-list proxy; no credential in .mcp.json.
@@ -86,6 +87,68 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'project/workflows/ext-biz-people-sync.yaml').is_file())
             config = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())
             self.assertIn('biz:people-sync', config['tasks'])
+            # Existing managed installs keep syncing their project: the people project defaults to it.
+            self.assertEqual(config['env']['FYSO_BIZ_PEOPLE_PROJECT'], 'b9209a13-a003-48f9-abc7-65f98e25b856')
+
+    def host(self, project):
+        api = project / 'framework/panel/extension-api.json'
+        api.parent.mkdir(parents=True)
+        api.write_text('{"version":4}\n')
+        (project / '.copier-answers.yml').write_text('port_base: 6100\n')
+
+    def assert_people_only(self, project):
+        for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
+            self.assertFalse((project / 'extensions/biz' / name).exists(), name)
+        self.assertTrue((project / 'project/workflows/ext-biz-people-sync.yaml').is_file())
+        config = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())
+        self.assertIn('biz:people-sync', config['tasks'])
+        self.assertEqual(config['env']['FYSO_BIZ_PEOPLE_PROJECT'], 'b9209a13-a003-48f9-abc7-65f98e25b856')
+        self.assertEqual(config['env']['FYSO_BIZ_ACCESS_PROJECT'], '')
+        self.assertEqual(config['env']['FYSO_BIZ_ACCESS_ORGANIZATION'], '')
+
+    def test_people_project_alone_syncs_people_without_gating_the_panel(self):
+        with tempfile.TemporaryDirectory(prefix='biz-people-') as temporary:
+            project = Path(temporary)
+            self.host(project)
+            invalid = self.copy(project, '--data', 'biz_people_project=not-a-uuid')
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertIn('Enter the project UUID', invalid.stderr)
+            self.assertFalse((project / 'extensions').exists())
+            # No framework access API: the people project needs only the Biz connection.
+            result = self.copy(project, '--data', 'biz_people_project=b9209a13-a003-48f9-abc7-65f98e25b856')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_people_only(project)
+
+    def test_people_project_survives_a_native_update_without_the_access_api(self):
+        # `copier update` renders the old version in a temporary directory without the
+        # project's framework/panel/*.json; the people project must not depend on them.
+        with tempfile.TemporaryDirectory(prefix='biz-people-update-') as temporary:
+            base = Path(temporary)
+            source = base / 'source'
+            shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns('.git', '.data', '__pycache__', 'node_modules'))
+            project = base / 'project'
+            self.host(project)
+            def run(args, cwd):
+                result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            def commit(directory):
+                run(['git', 'add', '.'], directory)
+                run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], directory)
+            run(['git', 'init', '-q'], source)
+            commit(source)
+            run(['git', 'tag', 'v0.1.0'], source)
+            copier = ['uvx', '--from', 'copier==9.19.1', 'copier']
+            run(copier + ['copy', '--trust', '--defaults', '--vcs-ref', 'v0.1.0',
+                '--data', 'biz_people_project=b9209a13-a003-48f9-abc7-65f98e25b856', str(source), str(project)], base)
+            run(['git', 'init', '-q'], project)
+            commit(project)
+            entry = source / 'extensions/biz/panel/index.html'
+            entry.write_text(entry.read_text() + '<!-- release fixture -->\n')
+            commit(source)
+            run(['git', 'tag', 'v0.1.1'], source)
+            run(copier + ['update', '--trust', '--defaults', '--answers-file', '.copier-answers.ext-biz.yml', '--vcs-ref', 'v0.1.1'], project)
+            self.assertIn('release fixture', (project / 'extensions/biz/panel/index.html').read_text())
+            self.assert_people_only(project)
 
     def test_panel_publication_uses_the_existing_biz_installation(self):
         with tempfile.TemporaryDirectory(prefix='biz-publish-') as temporary:

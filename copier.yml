@@ -49,6 +49,16 @@ biz_access_project:
     {% elif biz_access_project and not (biz_access_project | regex_search('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) %}
     Enter the project UUID from Fyso Biz.
     {% endif %}
+biz_people_project:
+  type: str
+  default: "{{ biz_access_project }}"
+  help: Fyso Biz project whose people become this project's people (uses the project's Biz connection; does not change panel login)
+  # Only the Biz connection is needed: no _external_data here, so `copier update`, which
+  # renders the old version without framework/panel/*.json, still accepts the answer.
+  validator: >-
+    {% if biz_people_project and not (biz_people_project | regex_search('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) %}
+    Enter the project UUID from Fyso Biz.
+    {% endif %}
 panel_publication:
   type: bool
   default: false
