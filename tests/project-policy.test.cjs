@@ -104,3 +104,27 @@ test('connector read, OAuth, probe and definition writes use different permissio
   assert.equal(await check(handler, '/api/connectors/mcp/demo', {method: 'DELETE'}), 204);
   assert.equal(await check(handler, '/api/omb/mcp/servers/demo/test/633151c4-db73-4ee9-87bf-554d327e8091', {method: 'POST'}), 403);
 });
+
+test('human-requests: answering a task needs the workflow run permission, the wiki its own', async () => {
+  const permissions = new Set(['app:panel', 'workflow:ext-human-requests-request:run', 'action:wiki:read']);
+  const handler = projectPolicy({
+    env, profiles: {current: () => ({accessToken: 'person'})},
+    access: {capabilities: async () => [...permissions]},
+  });
+  const runPath = '/api/dagu/dag-runs/ext-human-requests-request/run_1/human-tasks';
+  assert.equal(await check(handler, `${runPath}/ask/complete`, {method: 'POST'}), 204);
+  assert.equal(await check(handler, `${runPath}/ask/push-back`, {method: 'POST'}), 204);
+  assert.equal(await check(handler, `${runPath}/resume`, {method: 'POST'}), 204);
+  assert.equal(await check(handler, `${runPath}/ask/complete`), 403);
+  assert.equal(await check(handler, `${runPath}/ask/delete`, {method: 'POST'}), 403);
+  assert.equal(await check(handler, '/api/dagu/dag-runs/other/run_1/human-tasks/ask/complete', {method: 'POST'}), 403);
+
+  assert.equal(await check(handler, '/api/dagu/wiki'), 204);
+  assert.equal(await check(handler, '/api/dagu/wiki/page'), 204);
+  assert.equal(await check(handler, '/api/dagu/wiki', {method: 'POST'}), 403);
+  assert.equal(await check(handler, '/api/dagu/wiki/page', {method: 'PATCH'}), 403);
+  permissions.add('action:wiki:write');
+  assert.equal(await check(handler, '/api/dagu/wiki', {method: 'POST'}), 204);
+  assert.equal(await check(handler, '/api/dagu/wiki/page', {method: 'DELETE'}), 204);
+  assert.equal(await check(handler, '/api/dagu/wiki/other'), 403);
+});

@@ -148,6 +148,14 @@ and `workflow:<name>:read-outputs` to view outputs from a known run. Grant
 workflow execution only when the user can run that workflow with its
 supported parameters.
 
+### Human requests with managed access
+
+The [human-requests extension](https://github.com/fyso-dev/fyso-ext-human-requests) needs, besides `app:panel` and `page:extension:human-requests`:
+
+- `action:workflows:list-runs` and `workflow:ext-human-requests-request:read` (and `read-outputs`) to list and open pending requests;
+- `workflow:ext-human-requests-request:run` to answer, ask back or resume one (`POST …/human-tasks/…`);
+- `action:wiki:read` to read the People directory (Dagu's wiki), and `action:wiki:write` to add or edit people by hand. The policy cannot see which wiki page is requested, so these grant the whole project wiki.
+
 ### Report framework issues through Biz
 
 In a Biz-managed project, sign in to Biz and open **Report to Fyso**. Grant

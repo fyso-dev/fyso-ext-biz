@@ -45,6 +45,12 @@ const panelMetadata = new Set(['/config/project.json', '/config/apps.json', '/co
 const dagName = '([a-z0-9][a-z0-9_.-]{0,127})';
 const dag = new RegExp(`^/api/dagu/dags/${dagName}(?:/(dag-runs|start|enqueue))?$`);
 const run = new RegExp(`^/api/dagu/dag-runs/${dagName}/[a-zA-Z0-9_-]{1,128}(?:/(outputs))?$`);
+// Answering a waiting human task (human-requests' Pending page) acts on the run,
+// so it needs the same permission as starting the workflow.
+const humanTask = new RegExp(`^/api/dagu/dag-runs/${dagName}/[a-zA-Z0-9_-]{1,128}/human-tasks/(?:resume|[a-zA-Z0-9_.-]{1,128}/(?:complete|push-back))$`);
+// Dagu's wiki (human-requests' people directory). The page id travels in the
+// query string, which the policy does not see, so reads and writes are coarse.
+const wiki = /^\/api\/dagu\/wiki(?:\/page)?$/;
 
 function capability(method, path) {
   const fixed = exact.get(`${method} ${path}`);
@@ -58,6 +64,14 @@ function capability(method, path) {
     if (method === 'POST' && ['start', 'enqueue'].includes(operation)) return `workflow:${name}:run`;
     if (method === 'GET' && (!operation || operation === 'dag-runs')) return `workflow:${name}:read`;
   }
+  const task = humanTask.exec(path);
+  if (task && method === 'POST') return `workflow:${task[1]}:run`;
+
+  if (wiki.test(path)) {
+    if (read.has(method)) return 'action:wiki:read';
+    if (['POST', 'PATCH', 'DELETE'].includes(method)) return 'action:wiki:write';
+  }
+
   const execution = run.exec(path);
   if (method === 'GET' && execution) {
     return `workflow:${execution[1]}:${execution[2] ? 'read-outputs' : 'read'}`;
