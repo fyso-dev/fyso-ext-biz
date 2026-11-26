@@ -2,6 +2,13 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## v0.5.2
+
+- People sync without managed access: the new optional answer `biz_people_project` (a Fyso Biz project UUID, env `FYSO_BIZ_PEOPLE_PROJECT`) syncs that project's people over the project's own Biz connection. It does not enable Biz-managed access, does not need the framework access API and does not change the panel login: `panel-access.caddy`, `authorize.caddy`, `mcp-authorize` and the Workflows and feedback pages remain tied to `biz_access_project`.
+- `biz_people_project` defaults to `biz_access_project`, so managed installs keep syncing unchanged; with it empty, `FYSO_BIZ_ACCESS_PROJECT` is still used.
+- Without `biz_access_organization`, the organization that scopes the person ids is read from Biz (`proyectos_framework` → `organizacion`). Ids are derived exactly as in v0.5.0, so pages already synced are kept. Without a valid organization the run fails closed with `organization_unavailable`.
+- The `ext-biz-people-sync` workflow, the `biz:people-sync` task, the connection-hook run and `people_synced`/`people_count`/`people_sync` in `GET /api/ext/biz/status` now follow the people project instead of managed access. Managed-teams delivery still requires managed access.
+
 ## v0.5.1
 
 - Managed access: answering a human request from the panel (`POST /api/dagu/dag-runs/<workflow>/<run>/human-tasks/…/complete`, `…/push-back`, `…/resume`) now requires `workflow:<workflow>:run`; it was always refused before.

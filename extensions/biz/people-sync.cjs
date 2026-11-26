@@ -2,27 +2,47 @@
 // directory (owned by the human-requests extension): one Dagu wiki page per person at
 // `fyso-people/<uuid>`, content `{"version":1,"name":…}` plus `"source":"biz"` and
 // `"biz_id"`. Only pages marked `source: "biz"` are created, renamed or removed here;
-// people added by hand are never touched. Biz-managed access only
-// (`biz_access_organization`, `biz_access_project`).
+// people added by hand are never touched. Enabled by `biz_people_project`
+// (FYSO_BIZ_PEOPLE_PROJECT) or, when that is empty, by Biz-managed access
+// (FYSO_BIZ_ACCESS_PROJECT). Only the project's own Biz connection is used: the sync
+// does not need managed access and does not change who can open the panel.
 //
 // The wiki is written through Dagu's own REST API on the project's loopback port with
 // the project's technical Dagu credential, as the framework's dagu-client.cjs does
 // (run-ext.sh passes FYSO_DAGU_PORT, FYSO_ADMIN_USER and FYSO_ADMIN_PASSWORD).
-// `listar_personas_proyecto` is called on the extension's own Biz session; it is not
-// offered to bots (mcp-proxy.cjs ALLOWED).
+// `listar_personas_proyecto` (and `proyectos_framework`, to learn the organization when
+// managed access does not name it) is called on the extension's own Biz session; the
+// people tool is not offered to bots (mcp-proxy.cjs ALLOWED).
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 
 const PREFIX = 'fyso-people/';
 const ID = /^fyso-people\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const TOOL = 'listar_personas_proyecto';
+const TOOL = 'listar_personas_proyecto', ORGANIZATION_TOOL = 'proyectos_framework';
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const NAME_MAX = 80, PEOPLE_MAX = 5000, PAGES_MAX = 100;
 const LOCK_STALE = 10 * 60 * 1000;
 const ERRORS = ['not_configured', 'people_not_supported', 'proyecto_desconocido', 'personas_no_disponibles',
-  'project_mismatch', 'unexpected_response', 'wiki_unavailable', 'sync_running', 'missing_project_data'];
+  'project_mismatch', 'unexpected_response', 'wiki_unavailable', 'sync_running', 'missing_project_data',
+  'organization_unavailable'];
 
-/** Managed access is configured only when both answers are set. */
+/** The Biz project whose people are synced: `biz_people_project`, else the managed-access project. */
+const project = (env = process.env) => env.FYSO_BIZ_PEOPLE_PROJECT || env.FYSO_BIZ_ACCESS_PROJECT || '';
+
+/** The sync is configured when there is a people project. */
 function configured(env = process.env) {
-  return Boolean(env.FYSO_BIZ_ACCESS_ORGANIZATION && env.FYSO_BIZ_ACCESS_PROJECT);
+  return Boolean(project(env));
+}
+
+/**
+ * The organization slug the person ids are scoped by: the managed-access answer when set,
+ * otherwise what Biz reports for the project on this connection (`proyectos_framework`
+ * answers `{organizacion, proyectos}`). No valid slug, no sync.
+ */
+async function organization(mcp, env) {
+  if (SLUG.test(env.FYSO_BIZ_ACCESS_ORGANIZATION || '')) return env.FYSO_BIZ_ACCESS_ORGANIZATION;
+  const result = await mcp.call(ORGANIZATION_TOOL, {proyecto_id: project(env)});
+  if (typeof result?.organizacion !== 'string' || !SLUG.test(result.organizacion)) throw Error('organization_unavailable');
+  return result.organizacion;
 }
 
 /**
@@ -49,14 +69,14 @@ function cleanName(value) {
 /** The project's people as Biz lists them; any doubt about the answer changes nothing. */
 async function bizPeople(mcp, env) {
   let result;
-  try { result = await mcp.call(TOOL, {proyecto: env.FYSO_BIZ_ACCESS_PROJECT}); }
+  try { result = await mcp.call(TOOL, {proyecto: project(env)}); }
   catch (error) {
     // Biz's own error code travels in the tool error text (proyecto_desconocido, …).
     const known = ['proyecto_desconocido', 'personas_no_disponibles'].find(code => String(error.detail || '').includes(code));
     throw known ? Error(known) : error;
   }
   if (!result || typeof result !== 'object' || !Array.isArray(result.personas) || result.personas.length > PEOPLE_MAX) throw Error('unexpected_response');
-  if (String(result.proyecto) !== env.FYSO_BIZ_ACCESS_PROJECT) throw Error('project_mismatch');
+  if (String(result.proyecto) !== project(env)) throw Error('project_mismatch');
   const people = new Map();
   for (const person of result.personas) {
     const bizId = typeof person?.id === 'string' || typeof person?.id === 'number' ? String(person.id) : '';
@@ -121,8 +141,9 @@ function synced(text) {
 async function sync({mcp, directory, env = process.env}) {
   if (!configured(env)) throw Error('not_configured');
   const people = await bizPeople(mcp, env);
-  const organization = env.FYSO_BIZ_ACCESS_ORGANIZATION;
-  const wanted = new Map([...people].map(([bizId, name]) => [PREFIX + personId(organization, bizId), {bizId, name}]));
+  // Same derivation as v0.5.0 for the same organization, so existing pages are kept.
+  const scope = await organization(mcp, env);
+  const wanted = new Map([...people].map(([bizId, name]) => [PREFIX + personId(scope, bizId), {bizId, name}]));
   const current = new Map();
   for (const id of await directory.list()) current.set(id, await directory.read(id));
   const result = {count: wanted.size, created: 0, updated: 0, removed: 0, conflicts: 0};
@@ -167,7 +188,9 @@ async function run({env = process.env, mcp, directory, now = () => new Date().to
       const credential = await biz.token(env);
       mcp = biz.client(env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth: credential.oauth});
       await mcp.initialize();
-      if (!(await mcp.tools()).some(t => t.name === TOOL)) throw Error('people_not_supported');
+      const tools = await mcp.tools();
+      if (!tools.some(t => t.name === TOOL)) throw Error('people_not_supported');
+      if (!SLUG.test(env.FYSO_BIZ_ACCESS_ORGANIZATION || '') && !tools.some(t => t.name === ORGANIZATION_TOOL)) throw Error('organization_unavailable');
     }
     outcome = {ok: true, ...(await sync({mcp, directory: directory || wiki(env), env}))};
   } catch (error) {
@@ -175,6 +198,7 @@ async function run({env = process.env, mcp, directory, now = () => new Date().to
   } finally { release(); }
   outcome = {managed: true, at: now(), ...outcome};
   const previous = read(env);
+  // `managed` is kept for compatibility: it means the sync is configured.
   // Keep the last good count visible while a later run fails.
   const record = outcome.ok ? outcome : {...outcome, ...(previous?.lastOk && {lastOk: previous.lastOk})};
   if (outcome.ok) record.lastOk = {at: outcome.at, count: outcome.count};
@@ -194,7 +218,7 @@ function status(env = process.env) {
     people_sync: last ? {at: last.at, ok: last.ok, ...(last.error && {error: last.error})} : null};
 }
 
-module.exports = {PREFIX, TOOL, ERRORS, configured, personId, content, cleanName, bizPeople, wiki, sync, run, status};
+module.exports = {PREFIX, TOOL, ORGANIZATION_TOOL, ERRORS, project, configured, organization, personId, content, cleanName, bizPeople, wiki, sync, run, status};
 
 if (require.main === module) run().then(result => {
   console.log(JSON.stringify(result));

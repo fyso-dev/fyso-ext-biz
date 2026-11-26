@@ -10,15 +10,19 @@ const env = (extra = {}) => ({FYSO_BIZ_ACCESS_ORGANIZATION: ORG, FYSO_BIZ_ACCESS
   FYSO_DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'biz-people-')), ...extra});
 const page = bizId => people.PREFIX + people.personId(ORG, bizId);
 
-// Biz answering listar_personas_proyecto, or failing like the MCP client does.
-function biz(personas, {fail, proyecto = PROJECT} = {}) {
+// Biz answering listar_personas_proyecto (and proyectos_framework with `organizacion`),
+// or failing like the MCP client does.
+function biz(personas, {fail, proyecto = PROJECT, organizacion = ORG} = {}) {
   const calls = [];
   return {calls, call: async (name, args) => {
     calls.push([name, args]);
+    if (name === 'proyectos_framework') return {organizacion, proyectos: [{proyecto_id: args.proyecto_id, equipos: []}]};
     if (fail) throw fail;
     return {proyecto, personas};
   }};
 }
+// Only `biz_people_project`: no managed access, so no organization in the environment.
+const peopleOnly = (extra = {}) => env({FYSO_BIZ_ACCESS_ORGANIZATION: '', FYSO_BIZ_ACCESS_PROJECT: '', FYSO_BIZ_PEOPLE_PROJECT: PROJECT, ...extra});
 
 // The Dagu wiki as an in-memory map of page id → content, recording every write.
 function directory(pages = {}) {
@@ -137,8 +141,8 @@ test('run records the outcome for GET /status and keeps the last good count on f
   assert.equal(fs.existsSync(path.join(e.FYSO_DATA, 'ext/biz/people-sync.lock')), false);
 });
 
-test('without managed access nothing runs and /status is unchanged', async () => {
-  for (const e of [{}, {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}]) {
+test('without a people project nothing runs and /status is unchanged', async () => {
+  for (const e of [{}, {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}, {FYSO_BIZ_ACCESS_ORGANIZATION: ORG, FYSO_BIZ_PEOPLE_PROJECT: ''}]) {
     assert.deepEqual(await people.run({env: e, mcp: {call: () => assert.fail('called Biz')}}), {managed: false});
     assert.deepEqual(people.status(e), {});
   }
@@ -175,4 +179,71 @@ test('the wiki client uses Dagu\'s REST API with the project credential', async 
 
 test('bots do not get the people tool through the proxy', () => {
   assert.equal(ALLOWED.has(people.TOOL), false);
+});
+
+test('the people project alone configures the sync, without managed access', () => {
+  const e = {FYSO_BIZ_PEOPLE_PROJECT: PROJECT};
+  assert.equal(people.configured(e), true);
+  assert.equal(people.project(e), PROJECT);
+  // Backward compatible: managed access alone still syncs its project.
+  assert.equal(people.configured({FYSO_BIZ_ACCESS_ORGANIZATION: ORG, FYSO_BIZ_ACCESS_PROJECT: PROJECT}), true);
+  assert.equal(people.project({FYSO_BIZ_ACCESS_ORGANIZATION: ORG, FYSO_BIZ_ACCESS_PROJECT: PROJECT, FYSO_BIZ_PEOPLE_PROJECT: ''}), PROJECT);
+  // An explicit people project wins over the managed-access project.
+  const other = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  assert.equal(people.project({FYSO_BIZ_ACCESS_PROJECT: PROJECT, FYSO_BIZ_PEOPLE_PROJECT: other}), other);
+});
+
+test('without managed access the organization comes from Biz and gives the same ids', async () => {
+  const personas = [{id: 'u-1', nombre: 'Ana'}, {id: 'u-2', nombre: 'Luis'}];
+  const withEnv = directory(), withBiz = directory();
+  const managedBiz = biz(personas);
+  await people.sync({mcp: managedBiz, directory: withEnv, env: env()});
+  // Managed access names the organization: Biz is not asked for it.
+  assert.deepEqual(managedBiz.calls.map(c => c[0]), ['listar_personas_proyecto']);
+  const mcp = biz(personas);
+  assert.deepEqual(await people.sync({mcp, directory: withBiz, env: peopleOnly()}), {count: 2, created: 2, updated: 0, removed: 0, conflicts: 0});
+  assert.deepEqual(mcp.calls, [['listar_personas_proyecto', {proyecto: PROJECT}], ['proyectos_framework', {proyecto_id: PROJECT}]]);
+  assert.deepEqual([...withBiz.store.entries()], [...withEnv.store.entries()]);
+  assert.ok(withBiz.store.has(page('u-1')));
+  // Pages synced under managed access are kept, not duplicated, once only the people project is set.
+  withEnv.writes.length = 0;
+  assert.deepEqual(await people.sync({mcp: biz(personas), directory: withEnv, env: peopleOnly()}), {count: 2, created: 0, updated: 0, removed: 0, conflicts: 0});
+  assert.deepEqual(withEnv.writes, []);
+  // Fixed vector computed with v0.5.0: the derivation did not change.
+  assert.equal(people.personId('manolito-c9f7a', 'u-1'), 'e0aa85cb-6096-45aa-b94a-2ccb7bf85ef0');
+});
+
+test('the people project is the one sent to Biz and checked in its answer', async () => {
+  const other = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const mcp = biz([{id: 'u-1', nombre: 'Ana'}], {proyecto: other});
+  await people.sync({mcp, directory: directory(), env: peopleOnly({FYSO_BIZ_PEOPLE_PROJECT: other})});
+  assert.deepEqual(mcp.calls, [['listar_personas_proyecto', {proyecto: other}], ['proyectos_framework', {proyecto_id: other}]]);
+  // Biz answering for the managed-access project instead is a mismatch.
+  await assert.rejects(people.sync({mcp: biz([]), directory: directory(), env: env({FYSO_BIZ_PEOPLE_PROJECT: other})}), {message: 'project_mismatch'});
+});
+
+test('fails closed when no organization can be resolved', async () => {
+  const pages = {[page('u-1')]: people.content('Ana', 'u-1')};
+  for (const organizacion of [null, '', 'Not A Slug', '-x', 42]) {
+    const dir = directory(pages);
+    await assert.rejects(people.sync({mcp: biz([{id: 'u-2', nombre: 'Luis'}], {organizacion}), directory: dir, env: peopleOnly()}),
+      {message: 'organization_unavailable'});
+    assert.deepEqual(dir.writes, [], String(organizacion));
+  }
+  // A failed organization lookup changes nothing either.
+  const dir = directory(pages);
+  const failing = {call: async name => { if (name === 'proyectos_framework') throw Error('connection_failed'); return {proyecto: PROJECT, personas: []}; }};
+  await assert.rejects(people.sync({mcp: failing, directory: dir, env: peopleOnly()}), {message: 'connection_failed'});
+  assert.deepEqual(dir.writes, []);
+  // run() records the error for GET /status.
+  const e = peopleOnly();
+  const outcome = await people.run({env: e, mcp: biz([], {organizacion: ''}), directory: directory(), now: () => 'T1'});
+  assert.deepEqual([outcome.ok, outcome.error], [false, 'organization_unavailable']);
+  assert.deepEqual(people.status(e), {people_synced: false, people_count: null, people_sync: {at: 'T1', ok: false, error: 'organization_unavailable'}});
+});
+
+test('GET /status reports the people sync with only the people project', async () => {
+  const e = peopleOnly();
+  await people.run({env: e, mcp: biz([{id: 'u-1', nombre: 'Ana'}]), directory: directory(), now: () => 'T1'});
+  assert.deepEqual(people.status(e), {people_synced: true, people_count: 1, people_sync: {at: 'T1', ok: true}});
 });

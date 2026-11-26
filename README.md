@@ -80,9 +80,15 @@ Nothing merges concurrent edits. Credentials, memory and conversations never tra
 
 ## People of the Biz project
 
-With Biz-managed access, the people assigned to the project in Fyso Biz become the project's people: the extension mirrors them into the people directory of the [human-requests extension](https://github.com/fyso-dev/fyso-ext-human-requests) (Dagu wiki pages `fyso-people/<uuid>`). Biz is read with `listar_personas_proyecto` on the extension's own session; bots do not get this tool. Each person gets one page `{"version":1,"name":"…","source":"biz","biz_id":"…"}` at a stable UUID derived from the organization and the Biz user id. Missing people are created, renamed people updated, and people Biz no longer lists removed. Pages without `"source":"biz"` (people added by hand) are never touched. If Biz or the wiki cannot be read, nothing changes.
+Set `biz_people_project` to a Fyso Biz project UUID and the people assigned to that project in Fyso Biz become this project's people. It needs only the project's normal Biz connection: it does not turn on Biz-managed access and does not change how anyone signs in to the panel.
 
-The sync runs from the connection hook (install, update and `up`), every hour (`ext-biz-people-sync` workflow) and on demand (`mise run biz:people-sync`, or run the workflow). `GET /api/ext/biz/status` reports `people_synced`, `people_count` and `people_sync` (time and error of the last run); the last outcome is kept in `.data/ext/biz/people-sync.json`. Requires a Biz that offers `listar_personas_proyecto` (`people_not_supported` otherwise). See [docs/integration.md](docs/integration.md#people-of-the-biz-project).
+```sh
+mise run ext:update biz -- --defaults --data biz_people_project=<biz project uuid>
+```
+
+With Biz-managed access the answer defaults to `biz_access_project`, so managed installs sync their project without setting it. The extension mirrors the people into the people directory of the [human-requests extension](https://github.com/fyso-dev/fyso-ext-human-requests) (Dagu wiki pages `fyso-people/<uuid>`). Biz is read with `listar_personas_proyecto` on the extension's own session; bots do not get this tool. Each person gets one page `{"version":1,"name":"…","source":"biz","biz_id":"…"}` at a stable UUID derived from the organization slug and the Biz user id. The organization is `biz_access_organization` when managed access sets it, otherwise the `organizacion` Biz reports for the project (`proyectos_framework`); without a valid slug the sync fails (`organization_unavailable`) and changes nothing. The UUIDs are the same as in v0.5.0, so pages already synced are kept. Missing people are created, renamed people updated, and people Biz no longer lists removed. Pages without `"source":"biz"` (people added by hand) are never touched. If Biz or the wiki cannot be read, nothing changes.
+
+The sync runs from the connection hook (install, update and `up`), every hour (`ext-biz-people-sync` workflow) and on demand (`mise run biz:people-sync`, or run the workflow); the workflow and task are installed when `biz_people_project` (or `biz_access_project`) is set. `GET /api/ext/biz/status` reports `people_synced`, `people_count` and `people_sync` (time and error of the last run); the last outcome is kept in `.data/ext/biz/people-sync.json`. Requires a Biz that offers `listar_personas_proyecto` (`people_not_supported` otherwise). See [docs/integration.md](docs/integration.md#people-of-the-biz-project).
 
 ## Project identity
 
