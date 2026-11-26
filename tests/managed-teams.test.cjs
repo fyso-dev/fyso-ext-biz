@@ -197,7 +197,7 @@ test('without managed access the delivery does nothing', async () => {
   assert.equal(s.mcp.calls.length + s.ui.calls.length + s.h.calls.length, 0);
 });
 
-test('connect.sh runs the managed delivery only when managed access is configured', () => {
+test('connect.sh runs the people sync and managed delivery only when managed access is configured', () => {
   const repo = path.resolve(__dirname, '..');
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'biz-connect-')), log = path.join(bin, 'log');
   fs.writeFileSync(path.join(bin, 'node'), `#!/bin/sh\necho "$@" >> "${log}"\n`, {mode: 0o755});
@@ -208,5 +208,8 @@ test('connect.sh runs the managed delivery only when managed access is configure
   };
   assert.deepEqual(run({}), ['extensions/biz/bot.cjs']);
   assert.deepEqual(run({FYSO_BIZ_ACCESS_ORGANIZATION: '', FYSO_BIZ_ACCESS_PROJECT: ''}), ['extensions/biz/bot.cjs']);
-  assert.deepEqual(run(ENV), ['extensions/biz/bot.cjs', 'extensions/biz/managed-teams.cjs']);
+  assert.deepEqual(run(ENV), ['extensions/biz/bot.cjs', 'extensions/biz/people-sync.cjs', 'extensions/biz/managed-teams.cjs']);
+  // A failed people sync does not stop the hook.
+  fs.writeFileSync(path.join(bin, 'node'), `#!/bin/sh\necho "$@" >> "${log}"\ncase "$1" in *people-sync*) exit 1;; esac\n`, {mode: 0o755});
+  assert.deepEqual(run(ENV), ['extensions/biz/bot.cjs', 'extensions/biz/people-sync.cjs', 'extensions/biz/managed-teams.cjs']);
 });
