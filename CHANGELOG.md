@@ -2,6 +2,11 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## v0.5.1
+
+- Managed access: answering a human request from the panel (`POST /api/dagu/dag-runs/<workflow>/<run>/human-tasks/…/complete`, `…/push-back`, `…/resume`) now requires `workflow:<workflow>:run`; it was always refused before.
+- Managed access: Dagu's wiki (`/api/dagu/wiki`, `/api/dagu/wiki/page`), used by the human-requests People directory, requires `action:wiki:read` to read and `action:wiki:write` to create, edit or delete; it was always refused before.
+
 ## v0.5.0
 
 - People of the Biz project: with Biz-managed access, the people Fyso Biz assigns to the project (`listar_personas_proyecto`) are mirrored into the human-requests people directory as Dagu wiki pages `fyso-people/<uuid>` marked `"source":"biz"`, with a stable UUID per organization and Biz user. Missing people are created, renamed people updated and people Biz no longer lists removed; people added by hand are never touched, and a failed Biz or wiki read changes nothing.
