@@ -88,6 +88,7 @@ _exclude:
   - copier.yml
   - LICENSE
   - README.md
+  - CHANGELOG.md
   - panel-src
   - vite.config.mjs
   - tsconfig.json

@@ -20,6 +20,12 @@ run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs status"
 description = "List the Fyso Biz agent teams this connection can download"
 run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs teams"
 
+{% if biz_access_project %}
+[tasks."biz:people-sync"]
+description = "Sync the people of the Fyso Biz project into the people directory"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/people-sync.cjs"
+{% endif %}
+
 {% if panel_publication %}
 [tasks."biz:publication:status"]
 description = "Show the managed publication status and URL"

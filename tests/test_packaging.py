@@ -37,6 +37,8 @@ class Packaging(unittest.TestCase):
             self.assertTrue((project / 'extensions/biz/process.yaml').is_file())
             for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertFalse((project / 'extensions/biz' / name).exists(), name)
+            self.assertFalse((project / 'project/workflows/ext-biz-people-sync.yaml').exists())
+            self.assertTrue((project / 'project/workflows/ext-biz-dispatch.yaml').is_file())
             caddy = shutil.which('caddy')
             if caddy:
                 fixture = project / 'Caddyfile'
@@ -80,6 +82,10 @@ class Packaging(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
                 self.assertTrue((project / 'extensions/biz' / name).is_file(), name)
+            # The people of the Biz project are synced hourly, and on demand with a mise task.
+            self.assertTrue((project / 'project/workflows/ext-biz-people-sync.yaml').is_file())
+            config = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())
+            self.assertIn('biz:people-sync', config['tasks'])
 
     def test_panel_publication_uses_the_existing_biz_installation(self):
         with tempfile.TemporaryDirectory(prefix='biz-publish-') as temporary:

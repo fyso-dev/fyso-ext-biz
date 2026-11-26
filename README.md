@@ -78,6 +78,12 @@ A department travels as the framework's native package (`omb-team/1`: shared ins
 
 Nothing merges concurrent edits. Credentials, memory and conversations never travel. See the framework's `docs/team-templates.md`.
 
+## People of the Biz project
+
+With Biz-managed access, the people assigned to the project in Fyso Biz become the project's people: the extension mirrors them into the people directory of the [human-requests extension](https://github.com/fyso-dev/fyso-ext-human-requests) (Dagu wiki pages `fyso-people/<uuid>`). Biz is read with `listar_personas_proyecto` on the extension's own session; bots do not get this tool. Each person gets one page `{"version":1,"name":"…","source":"biz","biz_id":"…"}` at a stable UUID derived from the organization and the Biz user id. Missing people are created, renamed people updated, and people Biz no longer lists removed. Pages without `"source":"biz"` (people added by hand) are never touched. If Biz or the wiki cannot be read, nothing changes.
+
+The sync runs from the connection hook (install, update and `up`), every hour (`ext-biz-people-sync` workflow) and on demand (`mise run biz:people-sync`, or run the workflow). `GET /api/ext/biz/status` reports `people_synced`, `people_count` and `people_sync` (time and error of the last run); the last outcome is kept in `.data/ext/biz/people-sync.json`. Requires a Biz that offers `listar_personas_proyecto` (`people_not_supported` otherwise). See [docs/integration.md](docs/integration.md#people-of-the-biz-project).
+
 ## Project identity
 
 With the extension installed, the panel menu gets an **Identity** page (`extensions/biz/pages/identity.yaml`). It edits the project's look: name, accent (a palette or a custom colour), typography, corners, icon and login background. Changes preview live on the panel and are saved through the `ext-biz-brand` workflow, which runs the framework's `brand.cjs` and commits the result. The framework applies the saved identity everywhere (D92); this page only edits it.

@@ -73,7 +73,8 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
   };
   const routes = {
     'GET /mail/addresses': () => require('./email.cjs').remote('addresses', undefined, env),
-    'GET /status': () => biz.statusOf(env),
+    // With managed access, the outcome of the last people sync (people-sync.cjs) as well.
+    'GET /status': () => ({...biz.statusOf(env), ...require('./people-sync.cjs').status(env)}),
     'GET /teams': () => biz.overview(env, () => open()).catch(error => {
       if (RETRY.has(error.message)) { reset(); return biz.overview(env, () => open()); }
       throw error;

@@ -1,0 +1,10 @@
+description: Sync the people assigned to this project in Fyso Biz into the people directory (fyso-people/ wiki pages)
+working_dir: ${FYSO_ROOT}
+schedule: "17 * * * *"
+catchup_window: "1m"
+overlap_policy: skip
+max_active_runs: 1
+steps:
+  - id: sync
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/people-sync.cjs
+    output: RESULT
