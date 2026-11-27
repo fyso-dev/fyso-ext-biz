@@ -38,17 +38,31 @@ async function reportOf(access, profileToken) {
   return {capabilities: await access.capabilities(profileToken), admin: false, departments: [], policy: null, reauthorizeRequired: false};
 }
 
+/** The published setup Biz describes (`setup` of the access report), or null. */
+function setupOf(value) {
+  if (!value || typeof value !== 'object' || !text(value.version)) return null;
+  return {version: value.version, etag: text(value.etag), publishedAt: text(value.published_at),
+    size: Number.isSafeInteger(value.size) ? value.size : null, sha256: text(value.sha256)};
+}
+
 function projectAccess({env = process.env, transport = fetch} = {}) {
-  async function get(path, profileToken) {
+  async function get(path, profileToken, {method = 'GET', body} = {}) {
     if (typeof profileToken !== 'string' || !profileToken) throw Error('profile_required');
     const response = await transport(new URL(path, origin(env.FYSO_BIZ_URL || '')), {
-      headers: {Authorization: `Bearer ${profileToken}`, Accept: 'application/json'},
+      method,
+      headers: {Authorization: `Bearer ${profileToken}`, Accept: 'application/json', ...(body ? {'Content-Type': 'application/json'} : {})},
+      ...(body ? {body: JSON.stringify(body)} : {}),
       redirect: 'error',
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw Error('biz_access_unavailable');
-    return response.json();
+    return response.status === 204 ? null : response.json();
   }
+
+  const organization = () => {
+    if (!env.FYSO_BIZ_ACCESS_ORGANIZATION) throw Error('biz_access_not_configured');
+    return new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION});
+  };
 
   function query(capability) {
     const organization = env.FYSO_BIZ_ACCESS_ORGANIZATION;
@@ -94,7 +108,26 @@ function projectAccess({env = process.env, transport = fetch} = {}) {
       // departments": the person must reconnect Fyso Biz.
       return {capabilities: report.capabilities, admin: report.admin === true,
         departments: departments(report.departments), policy: policy(report.policy),
-        reauthorizeRequired: report.reauthorize_required === true};
+        reauthorizeRequired: report.reauthorize_required === true,
+        // Managed setup: the published setup, the response etag (changes with anything that
+        // affects the member), pending recipients (admins only) and the freeze flag.
+        // Present only when Biz sends them; absent means no setup, no etag, none pending, not frozen.
+        ...(setupOf(report.setup) ? {setup: setupOf(report.setup)} : {}), ...(text(report.etag) ? {etag: text(report.etag)} : {}),
+        ...(report.recipients_pending > 0 && Number.isSafeInteger(report.recipients_pending) ? {recipientsPending: report.recipients_pending} : {}),
+        ...(report.frozen === true ? {frozen: true} : {})};
+    },
+
+    /** Register this installation's age public key for the organization's setup (one per person). */
+    async registerRecipient(profileToken, ageKey) {
+      if (!/^age1[0-9a-z]{40,100}$/.test(ageKey || '')) throw Error('invalid_age_key');
+      await get(`/oauth/framework-access/recipient?${organization()}`, profileToken, {method: 'PUT', body: {age_public_key: ageKey}});
+    },
+
+    /** Admins: the registered recipients and their etag. */
+    async recipients(profileToken) {
+      const result = await get(`/oauth/framework-access/recipients?${organization()}`, profileToken);
+      if (!Array.isArray(result?.recipients)) throw Error('invalid_biz_access_decision');
+      return {recipients: result.recipients, etag: text(result.etag)};
     },
   };
 }

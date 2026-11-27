@@ -4,6 +4,12 @@ FYSO_EXT_BIZ_PORT = "{{ extension_port }}"
 FYSO_BIZ_ACCESS_ORGANIZATION = "{{ biz_access_organization }}"
 FYSO_BIZ_ACCESS_PROJECT = "{{ biz_access_project }}"
 FYSO_BIZ_PEOPLE_PROJECT = "{{ biz_people_project }}"
+{% if biz_access_organization %}
+# The framework's Biz transport (dist:*): where Biz is and how to get a fresh framework_access token.
+FYSO_DIST_BIZ_URL = "{{ biz_url }}"
+FYSO_DIST_BIZ_ORGANIZATION = "{{ biz_access_organization }}"
+FYSO_DIST_BIZ_TOKEN_CMD = "node extensions/biz/profile-token.cjs"
+{% endif %}
 {% if panel_publication %}
 FYSO_WEB_SCHEME = "https"
 FYSO_PUBLICATION_SERVICE = {{ publication_service | to_json }}
@@ -20,6 +26,16 @@ run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs status"
 [tasks."biz:teams"]
 description = "List the Fyso Biz agent teams this connection can download"
 run = "framework/scripts/run-ext.sh biz -- node extensions/biz/biz.cjs teams"
+
+{% if biz_access_organization %}
+[tasks."biz:setup:sync"]
+description = "Reconcile this project with the organization's setup published in Fyso Biz"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/managed-setup.cjs sync"
+
+[tasks."biz:setup:status"]
+description = "Show the managed setup state (version, freeze, pause, notices)"
+run = "framework/scripts/run-ext.sh biz -- node extensions/biz/managed-setup.cjs status"
+{% endif %}
 
 {% if biz_people_project or biz_access_project %}
 [tasks."biz:people-sync"]

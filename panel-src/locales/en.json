@@ -216,7 +216,8 @@
     "syncProposeName": "Propose «{{name}}»",
     "syncManaged": "Fyso Business manages this department for this project: changes are made there.",
     "syncProposalsNotSupported": "Your Fyso Business does not accept change proposals yet.",
-    "tabAccess": "Your departments"
+    "tabAccess": "Your departments",
+    "tabSetup": "Setup"
   },
   "access": {
     "reauthorize": "Your Fyso Biz connection predates departments and we cannot tell who you are. Reconnect Fyso Biz to see your departments; meanwhile nothing about your teams is changed.",
@@ -291,5 +292,58 @@
         "You also use the most capable AI models."
       ]
     }
+  },
+  "setup": {
+    "title": "Organization setup",
+    "intro": "The setup your organization publishes in Fyso Biz (extensions, MCP servers, bots, secrets). It is kept up to date every 15 minutes.",
+    "loading": "Loading…",
+    "noAccess": "You do not have access to the organization's setup yet. Ask an administrator to add you to a department in Fyso Biz.",
+    "frozen": "Your access was revoked: this project is read-only and the secrets delivered by the setup were removed.",
+    "secretsPending": "The setup's secrets are not encrypted for this installation's key yet, so they were not installed: {{names}}. They arrive automatically once the administrator publishes again.",
+    "paused": "Sync is paused ({{reason}}); nothing was changed.",
+    "connected": "Connected. Setup {{version}} applied.",
+    "offered": "The organization offers setup {{version}}.",
+    "noneOffered": "The organization has not published a setup yet; only its rules apply.",
+    "connect": "Connect and review changes",
+    "previewTitle": "What will change",
+    "nothingLost": "Nothing local will be replaced or removed.",
+    "warning": "Applying the setup will replace and remove the items below. A snapshot is taken first; locally edited files are also saved as a patch in .data/dist.",
+    "replaced": "Files replaced ({{count}})",
+    "removed": "Removed because the organization's policy does not allow them ({{count}})",
+    "removeExtension": "Extension {{name}}",
+    "removeMcp": "MCP server {{name}}",
+    "removeBot": "Bot {{name}}",
+    "removeTeam": "Team of department {{name}}",
+    "snapshotNote": "Cancel to stay disconnected: nothing is changed.",
+    "confirm": "Apply the setup",
+    "cancel": "Cancel",
+    "applied": "Setup applied.",
+    "publish": "Publish this project's setup",
+    "published": "Setup published.",
+    "disconnect": "Disconnect",
+    "notices": "Recent notices",
+    "errors": {
+      "setup_failed": "The setup could not be completed. Nothing was removed.",
+      "not_connected": "Connect Fyso Biz first.",
+      "reauthorize_required": "Reconnect Fyso Biz.",
+      "frozen": "Your access was revoked.",
+      "no_access": "You do not have access to the setup yet.",
+      "access_required": "You do not have access to this project in Fyso Biz.",
+      "admin_required": "Only administrators can publish.",
+      "preview_changed": "The plan changed; review it again.",
+      "busy": "Another change is in progress.",
+      "not_renewable": "Biz did not issue a renewable grant; reconnect.",
+      "dist_failed": "The distribution could not be applied.",
+      "stale_base": "Another administrator published a newer setup. Update and merge it, then publish again.",
+      "merge_conflict": "The latest setup conflicts with your local edits in the files below. Nothing was changed.",
+      "setup_not_installed": "This project has not installed the setup Biz already has. Install it first, then publish."
+    },
+    "mergeAndPublish": "Update and merge",
+    "conflicts": "Conflicting files",
+    "publishPaused": "Automatic publishing is paused: the latest setup conflicts with your edits in {{files}}. Nothing was changed; resolve them and publish again.",
+    "installFirst": "Install the current setup first",
+    "keepMine": "Keep mine",
+    "takePublished": "Take the published one",
+    "resolveMerge": "Resolve and merge"
   }
 }

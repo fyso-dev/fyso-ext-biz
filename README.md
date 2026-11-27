@@ -180,3 +180,5 @@ the status and recover the receipt. See [receipt recovery](docs/integration.md#f
 Coordinate rollout with the AF merge that
 publishes the [AF setup and verification guide](https://github.com/fyso-dev/agentic-framework/blob/main/docs/biz-feedback-delivery.md)
 and with availability of the authenticated Biz receipt lookup.
+
+Biz-managed setup (organization setup published in Biz, connect/sync/freeze): see docs/integration.md.

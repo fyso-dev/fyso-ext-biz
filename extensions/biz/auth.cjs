@@ -47,7 +47,7 @@ async function json(response) {
 }
 
 function store({env = process.env, transport = fetch, now = Date.now} = {}) {
-  const dir = dataDir(env), tokensFile = path.join(dir, 'oauth.json');
+  const dir = dataDir(env), tokensFile = path.join(dir, 'oauth.json'), profileFile = path.join(dir, 'profile-oauth.json');
   const bizOrigin = () => origin(env.FYSO_BIZ_URL || '');
 
   async function metadata() {
@@ -103,7 +103,7 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
     if (!body?.access_token || String(body.token_type).toLowerCase() !== 'bearer') throw Error(response.status >= 400 && response.status < 500 ? 'access_denied' : 'remote_unavailable');
     return body;
   }
-  const save = (body, clientId, previous = {}) => writePrivate(tokensFile, {
+  const save = (body, clientId, previous = {}, file = tokensFile) => writePrivate(file, {
     origin: bizOrigin(), clientId, accessToken: body.access_token,
     refreshToken: body.refresh_token || previous.refreshToken || null,
     expiresAt: now() + Math.max(60, Number(body.expires_in) || 3600) * 1000,
@@ -125,7 +125,20 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
     const body = await exchange(pending, code, PROFILE_SCOPE);
     const seconds = Number(body.expires_in);
     if (!Number.isFinite(seconds) || seconds <= 0) throw Error('invalid_profile_token');
-    return {accessToken: body.access_token, expiresAt: now() + seconds * 1000};
+    const grant = {accessToken: body.access_token, expiresAt: now() + seconds * 1000};
+    // What only an explicit connect keeps (saveProfile); invisible to everything that just reads the token.
+    Object.defineProperties(grant, {refreshToken: {value: body.refresh_token || null}, clientId: {value: pending.clientId}});
+    return grant;
+  }
+
+  /**
+   * Keep a profile grant (`framework_access`) so headless runs (the sync workflow, the
+   * distribution's token command) can renew it. Only the person's explicit connect does this.
+   */
+  function saveProfile(grant) {
+    if (!grant?.accessToken || !grant.refreshToken) throw Error('not_renewable');
+    writePrivate(profileFile, {origin: bizOrigin(), clientId: grant.clientId, accessToken: grant.accessToken,
+      refreshToken: grant.refreshToken, expiresAt: grant.expiresAt, connectedAt: new Date(now()).toISOString()});
   }
 
   // One refresh at a time: Biz rotates refresh tokens.
@@ -143,10 +156,12 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
     try { return await fn(); } finally { fs.rmdirSync(lock); }
   }
 
-  /** A valid access token, refreshed when it expires within a minute. */
-  async function accessToken() {
+  /** A valid access token of the agent grant, or of the profile grant, refreshed when it expires within a minute. */
+  const accessToken = () => renewed(tokensFile);
+  const profileAccessToken = () => renewed(profileFile);
+  async function renewed(file) {
     const current = () => {
-      const saved = readJson(tokensFile);
+      const saved = readJson(file);
       return saved?.origin === bizOrigin() && saved.accessToken ? saved : null;
     };
     let saved = current();
@@ -158,7 +173,7 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
       if (saved.expiresAt - now() > 60000) return saved.accessToken;
       if (!saved.refreshToken) throw Error('not_connected');
       const body = await grant(await metadata(), {grant_type: 'refresh_token', refresh_token: saved.refreshToken, client_id: saved.clientId});
-      save(body, saved.clientId, saved);
+      save(body, saved.clientId, saved, file);
       return body.access_token;
     });
   }
@@ -169,9 +184,15 @@ function store({env = process.env, transport = fetch, now = Date.now} = {}) {
       ? {connected: true, connectedAt: saved.connectedAt, renewable: !!saved.refreshToken} : {connected: false};
   }
   function logout() { fs.rmSync(tokensFile, {force: true}); }
+  const profileStatus = () => {
+    const saved = readJson(profileFile);
+    return {connected: saved?.origin === bizOrigin() && Boolean(saved.accessToken && saved.refreshToken)};
+  };
+  const profileLogout = () => fs.rmSync(profileFile, {force: true});
 
   return {begin: redirectUri => begin(redirectUri), finish, accessToken, status, logout, metadata,
-    beginProfile: redirectUri => begin(redirectUri, PROFILE_SCOPE), finishProfile};
+    beginProfile: redirectUri => begin(redirectUri, PROFILE_SCOPE), finishProfile,
+    saveProfile, profileAccessToken, profileStatus, profileLogout};
 }
 
-module.exports = {origin, addresses, store};
+module.exports = {origin, addresses, store, dataDir};

@@ -2,6 +2,17 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## v0.7.0
+
+- Biz-managed setup: the organization's framework setup, published to Biz by an administrator as a distribution, reaches every member. New **Setup** tab: connect (profile login `framework_access`, age key registered with Biz, `dist:plan` plus the policy removals shown as a warning, snapshot, confirm), cancel (disconnect, nothing changed), disconnect and, for administrators, publish (`dist:publish`).
+- "Compatible" mode removes only what the policy forbids: extensions and MCP servers outside the setup and the catalog (`framework:extensions:*`, `framework:mcp_servers:*`), own bots without `framework:bots:create`, and the teams of departments the person no longer holds.
+- New workflow `ext-biz-sync` (every 15 minutes, `mise run biz:setup:sync`): same etag does nothing; a change is applied after a snapshot and announced in the panel. Administrators publish again when recipients are pending or changed. A failed, unexpectedly empty or `reauthorize_required` answer pauses the sync and removes nothing.
+- `frozen: true` after a setup was delivered: read-only (as `cuidado`) in the panel policy and the MCP policy, sync stops, the secrets the distribution delivered are removed from `secrets.enc.yaml`. `frozen` on a project that never received a setup is shown as "no access yet" and changes nothing. Unfrozen when Biz answers `frozen: false`.
+- The MCP policy now enforces the policy: a `cuidado` or frozen person may only call read tools.
+- The mise environment sets `FYSO_DIST_BIZ_URL`, `FYSO_DIST_BIZ_ORGANIZATION` and `FYSO_DIST_BIZ_TOKEN_CMD` (`profile-token.cjs`) for the framework's Biz transport. Requires agentic-framework with the Biz transport (PR #131) and a Biz with the managed-setup endpoints (fyso-business ADR 0134).
+- Fix: the managed-teams reauthorize guard now reads the access report with the profile token (it sent the agent grant), and a failed read blocks the destructive steps (unflagging, re-recording departments) instead of allowing them.
+- Found by the end-to-end test against a fake Biz: the publisher registers its own age key before its first publish (a first publish with secrets failed), a project that never started snapshots by committing only, unfreezing installs the setup again so the removed secrets return, a second freeze does not leave an already removed secret pending, and a sync that installed nothing no longer reports replaced files.
+
 ## v0.6.0
 
 - Access by department: `biz_access_project` is optional. `biz_access_organization` alone enables managed access (panel and MCP policy, template slots, feedback, managed-teams delivery); `project` is sent to Biz only when set. Installs that still set it work unchanged.

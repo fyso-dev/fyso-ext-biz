@@ -1,4 +1,5 @@
 const {projectAccess, reportOf} = require('./project-access.cjs');
+const {isFrozen} = require('./managed-setup.cjs');
 
 const signIn = '/api/ext/biz/profile/sign-in';
 const profileRoutes = new Map([
@@ -9,6 +10,9 @@ const profileRoutes = new Map([
   ['/api/ext/biz/profile/status', 'GET'],
   ['/api/ext/biz/profile/logout', 'POST'],
   ['/api/ext/biz/profile/mcp-token', 'POST'],
+  // Managed setup: the profile session is the credential; Biz decides what it may do.
+  ['/api/ext/biz/profile/setup/status', 'GET'],
+  ...['preview', 'confirm', 'cancel', 'publish', 'merge', 'disconnect'].map(op => [`/api/ext/biz/profile/setup/${op}`, 'POST']),
 ]);
 const shell = /^\/(?:index\.html|assets\/[a-z0-9_./-]+|favicon\.[a-z0-9]+)?$/i;
 const read = new Set(['GET', 'HEAD']);
@@ -145,6 +149,10 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
     if (!permission && !entryOnly) return reply(403);
     try {
       const report = await reportOf(access, session.accessToken);
+      // A frozen project (the person lost access) is read-only, as the `cuidado` preset: Biz says so
+      // (`frozen`) or the last sync recorded it, so it holds while Biz cannot be reached.
+      // Biz sends `capabilities: []` when frozen, so reads are allowed here without them.
+      if (report.frozen === true || isFrozen(env)) return reply(read.has(method) ? 204 : 403);
       const granted = new Set(report.capabilities);
       const required = report.policy && !entryOnly ? frameworkRequirement(method, path) : null;
       return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) && (!required || granted.has(required)) ? 204 : 403);

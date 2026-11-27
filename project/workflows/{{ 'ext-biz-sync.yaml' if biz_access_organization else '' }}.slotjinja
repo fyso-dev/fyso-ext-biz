@@ -1,0 +1,10 @@
+description: Keep this project in line with the organization's setup and rules in Fyso Biz (same etag does nothing; a change is applied after a snapshot)
+working_dir: ${FYSO_ROOT}
+schedule: "*/15 * * * *"
+catchup_window: "1m"
+overlap_policy: skip
+max_active_runs: 1
+steps:
+  - id: sync
+    command: framework/scripts/run-ext.sh biz -- node extensions/biz/managed-setup.cjs sync
+    output: RESULT

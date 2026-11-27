@@ -216,7 +216,8 @@
     "syncProposeName": "Proponer «{{name}}»",
     "syncManaged": "Fyso Business administra este departamento para este proyecto: los cambios se hacen allí.",
     "syncProposalsNotSupported": "Tu Fyso Business todavía no recibe propuestas de cambio.",
-    "tabAccess": "Tus departamentos"
+    "tabAccess": "Tus departamentos",
+    "tabSetup": "Setup"
   },
   "access": {
     "reauthorize": "Tu conexión con Fyso Biz es anterior a los departamentos y no podemos saber quién sos. Volvé a conectar Fyso Biz para ver tus departamentos; mientras tanto no se cambia nada de tus equipos.",
@@ -291,5 +292,58 @@
         "Usás también los modelos de IA más potentes."
       ]
     }
+  },
+  "setup": {
+    "title": "Setup de la organización",
+    "intro": "El setup que tu organización publica en Fyso Biz (extensiones, servidores MCP, bots, secretos). Se mantiene al día cada 15 minutos.",
+    "loading": "Cargando…",
+    "noAccess": "Todavía no tenés acceso al setup de la organización. Pedile a un administrador que te agregue a un departamento en Fyso Biz.",
+    "frozen": "Tu acceso fue revocado: este proyecto es de solo lectura y se quitaron los secretos entregados por el setup.",
+    "secretsPending": "Los secretos de la configuración todavía no están cifrados para la clave de esta instalación, por eso no se instalaron: {{names}}. Llegarán solos cuando la persona administradora publique de nuevo.",
+    "paused": "La sincronización está en pausa ({{reason}}); no se cambió nada.",
+    "connected": "Conectado. Setup {{version}} aplicado.",
+    "offered": "La organización ofrece el setup {{version}}.",
+    "noneOffered": "La organización todavía no publicó un setup; solo aplican sus reglas.",
+    "connect": "Conectar y revisar cambios",
+    "previewTitle": "Qué va a cambiar",
+    "nothingLost": "No se reemplazará ni quitará nada local.",
+    "warning": "Aplicar el setup reemplazará y quitará lo que sigue. Antes se toma un snapshot; los archivos editados localmente también se guardan como parche en .data/dist.",
+    "replaced": "Archivos reemplazados ({{count}})",
+    "removed": "Se quita porque la política de la organización no lo permite ({{count}})",
+    "removeExtension": "Extensión {{name}}",
+    "removeMcp": "Servidor MCP {{name}}",
+    "removeBot": "Bot {{name}}",
+    "removeTeam": "Equipo del departamento {{name}}",
+    "snapshotNote": "Cancelá para seguir desconectado: no se cambia nada.",
+    "confirm": "Aplicar el setup",
+    "cancel": "Cancelar",
+    "applied": "Setup aplicado.",
+    "publish": "Publicar el setup de este proyecto",
+    "published": "Setup publicado.",
+    "disconnect": "Desconectar",
+    "notices": "Avisos recientes",
+    "errors": {
+      "setup_failed": "No se pudo completar el setup. No se quitó nada.",
+      "not_connected": "Conectá Fyso Biz primero.",
+      "reauthorize_required": "Reconectá Fyso Biz.",
+      "frozen": "Tu acceso fue revocado.",
+      "no_access": "Todavía no tenés acceso al setup.",
+      "access_required": "No tenés acceso a este proyecto en Fyso Biz.",
+      "admin_required": "Solo los administradores pueden publicar.",
+      "preview_changed": "El plan cambió; revisalo de nuevo.",
+      "busy": "Hay otro cambio en curso.",
+      "not_renewable": "Biz no entregó una credencial renovable; reconectá.",
+      "dist_failed": "No se pudo aplicar la distribución.",
+      "stale_base": "Otro administrador publicó un setup más nuevo. Actualizá y fusioná, y luego publicá de nuevo.",
+      "merge_conflict": "El último setup entra en conflicto con tus cambios locales en los archivos de abajo. No se cambió nada.",
+      "setup_not_installed": "Este proyecto no instaló el setup que Biz ya tiene. Instalalo primero y luego publicá."
+    },
+    "mergeAndPublish": "Actualizar y fusionar",
+    "conflicts": "Archivos en conflicto",
+    "publishPaused": "La publicación automática está en pausa: el último setup entra en conflicto con tus cambios en {{files}}. No se cambió nada; resolvelos y publicá de nuevo.",
+    "installFirst": "Instalar primero el setup actual",
+    "keepMine": "Quedarme con el mío",
+    "takePublished": "Tomar el publicado",
+    "resolveMerge": "Resolver y fusionar"
   }
 }
