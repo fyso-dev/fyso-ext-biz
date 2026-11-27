@@ -32,20 +32,20 @@ biz_url:
 biz_access_organization:
   type: str
   default: ""
-  help: Organization slug for Biz-managed project access (empty to leave it disabled)
+  help: Organization slug for Biz-managed access by department (empty to leave it disabled)
   validator: >-
     {% if biz_access_organization and not (biz_access_organization | regex_search('^[a-z0-9][a-z0-9-]{0,62}$')) %}
     Enter a valid organization slug.
+    {% elif biz_access_organization and (_external_data.access_api.version | default(0)) < 1 %}
+    Update the framework before enabling Biz-managed access.
     {% endif %}
 biz_access_project:
   type: str
   default: ""
-  help: Project ID registered in Fyso Biz (empty when managed access is disabled)
+  help: Legacy only. Project ID registered in Fyso Biz; leave empty to derive access from the person's departments
   validator: >-
-    {% if (biz_access_organization and not biz_access_project) or (biz_access_project and not biz_access_organization) %}
-    Set both the organization and project, or leave both empty.
-    {% elif biz_access_project and (_external_data.access_api.version | default(0)) < 1 %}
-    Update the framework before enabling Biz-managed project access.
+    {% if biz_access_project and not biz_access_organization %}
+    Set the organization too, or leave the project empty.
     {% elif biz_access_project and not (biz_access_project | regex_search('^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) %}
     Enter the project UUID from Fyso Biz.
     {% endif %}

@@ -90,6 +90,27 @@ class Packaging(unittest.TestCase):
             # Existing managed installs keep syncing their project: the people project defaults to it.
             self.assertEqual(config['env']['FYSO_BIZ_PEOPLE_PROJECT'], 'b9209a13-a003-48f9-abc7-65f98e25b856')
 
+    def test_organization_alone_enables_managed_access_without_a_project(self):
+        with tempfile.TemporaryDirectory(prefix='biz-org-') as temporary:
+            project = Path(temporary)
+            self.host(project)
+            (project / 'framework/panel/access-api.json').write_text('{"version":1}\n')
+            result = self.copy(project, '--data', 'biz_access_organization=fixture')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for name in ('authorize.caddy', 'panel-access.caddy', 'mcp-authorize', 'pages/workflows.yaml', 'pages/feedback.yaml'):
+                self.assertTrue((project / 'extensions/biz' / name).is_file(), name)
+            config = tomllib.loads((project / '.config/mise/conf.d/ext-biz.toml').read_text())
+            self.assertEqual(config['env']['FYSO_BIZ_ACCESS_ORGANIZATION'], 'fixture')
+            self.assertEqual(config['env']['FYSO_BIZ_ACCESS_PROJECT'], '')
+            # The project is optional; a project without an organization is still refused.
+        with tempfile.TemporaryDirectory(prefix='biz-lone-') as temporary:
+            lone = Path(temporary)
+            self.host(lone)
+            (lone / 'framework/panel/access-api.json').write_text('{"version":1}\n')
+            refused = self.copy(lone, '--data', 'biz_access_project=b9209a13-a003-48f9-abc7-65f98e25b856')
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn('Set the organization too', refused.stderr)
+
     def host(self, project):
         api = project / 'framework/panel/extension-api.json'
         api.parent.mkdir(parents=True)

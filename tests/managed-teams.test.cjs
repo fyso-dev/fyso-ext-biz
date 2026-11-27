@@ -73,7 +73,7 @@ function helper(root, git) {
 }
 
 // Fyso Biz: the project's assignment and its teams' packages.
-function biz({organizacion = ORG, proyectos, teams, tools = ['proyectos_framework', 'listar_equipos', 'exportar_equipo']}) {
+function biz({organizacion = ORG, proyectos, departamentos, teams, tools = ['proyectos_framework', 'listar_equipos', 'exportar_equipo']}) {
   const calls = [];
   return {calls, teams,
     initialize: async () => {},
@@ -82,6 +82,9 @@ function biz({organizacion = ORG, proyectos, teams, tools = ['proyectos_framewor
       calls.push([name, args]);
       if (name === 'proyectos_framework') return {organizacion, proyectos: proyectos ?? [{proyecto_id: PROJECT, nombre: 'Ops', nivel: {id: 'n1', nombre: 'Base'},
         equipos: Object.entries(teams).map(([equipo_id, t]) => ({equipo_id, nombre: t.nombre}))}]};
+      if (name === 'departamentos_framework') return {organizacion, departamentos: departamentos ?? [
+        {departamento_id: 'd1', nombre: 'Ventas', rol: {id: 'lider'}, equipos: [{equipo_id: 'e1', nombre: 'Ventas'}, {equipo_id: 'e2', nombre: 'Soporte'}]},
+        {departamento_id: 'd2', nombre: 'Soporte', rol: {id: 'miembro'}, equipos: [{equipo_id: 'e2', nombre: 'Soporte'}]}]};
       if (name === 'listar_equipos') return {equipos: Object.entries(teams).map(([id, t]) => ({id, nombre: t.nombre, version: t.version}))};
       if (name === 'exportar_equipo') {
         const t = teams[args.equipo_id];
@@ -191,7 +194,7 @@ test('a Biz without proyectos_framework is reported as such', async () => {
 
 test('without managed access the delivery does nothing', async () => {
   const s = setup();
-  for (const env of [{}, {FYSO_BIZ_ACCESS_ORGANIZATION: '', FYSO_BIZ_ACCESS_PROJECT: ''}, {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}]) {
+  for (const env of [{}, {FYSO_BIZ_ACCESS_ORGANIZATION: '', FYSO_BIZ_ACCESS_PROJECT: ''}, {FYSO_BIZ_ACCESS_PROJECT: PROJECT}]) {
     assert.deepEqual(await s.run({env, helper: undefined}), {managed: false});
   }
   assert.equal(s.mcp.calls.length + s.ui.calls.length + s.h.calls.length, 0);
@@ -209,7 +212,75 @@ test('connect.sh runs the people sync and managed delivery only when managed acc
   assert.deepEqual(run({}), ['extensions/biz/bot.cjs']);
   assert.deepEqual(run({FYSO_BIZ_ACCESS_ORGANIZATION: '', FYSO_BIZ_ACCESS_PROJECT: ''}), ['extensions/biz/bot.cjs']);
   assert.deepEqual(run(ENV), ['extensions/biz/bot.cjs', 'extensions/biz/people-sync.cjs', 'extensions/biz/managed-teams.cjs']);
+  // The organization alone is enough: no project, so no people sync.
+  assert.deepEqual(run({FYSO_BIZ_ACCESS_ORGANIZATION: ORG}), ['extensions/biz/bot.cjs', 'extensions/biz/managed-teams.cjs']);
   // A failed people sync does not stop the hook.
   fs.writeFileSync(path.join(bin, 'node'), `#!/bin/sh\necho "$@" >> "${log}"\ncase "$1" in *people-sync*) exit 1;; esac\n`, {mode: 0o755});
   assert.deepEqual(run(ENV), ['extensions/biz/bot.cjs', 'extensions/biz/people-sync.cjs', 'extensions/biz/managed-teams.cjs']);
+});
+
+test('without a project the teams come from the person\'s departments, each once', async () => {
+  const s = setup({tools: ['departamentos_framework', 'proyectos_framework', 'listar_equipos', 'exportar_equipo']});
+  const result = await s.run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}});
+  assert.equal(result.project, null);
+  assert.deepEqual(result.departments, [{id: 'd1', name: 'Ventas'}, {id: 'd2', name: 'Soporte'}]);
+  assert.deepEqual(result.teams.map(t => [t.equipoId, t.applied]), [['e1', true], ['e2', true]]);
+  assert.deepEqual(s.mcp.calls[0], ['departamentos_framework', {}]);
+  assert.ok(!s.mcp.calls.some(c => c[0] === 'proyectos_framework'));
+});
+
+test('a configured project keeps the legacy path even when Biz offers departments', async () => {
+  const s = setup({tools: ['departamentos_framework', 'proyectos_framework', 'listar_equipos', 'exportar_equipo']});
+  assert.equal((await s.run()).project.id, PROJECT);
+  assert.deepEqual(s.mcp.calls[0], ['proyectos_framework', {proyecto_id: PROJECT}]);
+  assert.ok(!s.mcp.calls.some(c => c[0] === 'departamentos_framework'));
+  await assert.rejects(setup({organizacion: 'other'}).run(), {message: 'organization_mismatch'});
+  await assert.rejects(setup({proyectos: []}).run(), {message: 'project_not_assigned'});
+});
+
+test('without a project a Biz lacking departamentos_framework is unsupported', async () => {
+  await assert.rejects(setup().run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}}), {message: 'managed_teams_not_supported'});
+});
+
+test('departments of another organization are refused', async () => {
+  const s = setup({organizacion: 'other', tools: ['departamentos_framework', 'listar_equipos', 'exportar_equipo']});
+  await assert.rejects(s.run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}}), {message: 'organization_mismatch'});
+  assert.equal(s.ui.calls.length, 0);
+});
+
+test('by department, a grant Biz asks to reauthorize skips the sync without touching anything', async () => {
+  const s = setup({tools: ['departamentos_framework', 'listar_equipos', 'exportar_equipo']});
+  const env = {FYSO_BIZ_ACCESS_ORGANIZATION: ORG};
+  await s.run({env});
+  const before = {head: s.head(), teams: teamFile(s.root), state: JSON.stringify(sync.readState(s.root)), calls: s.mcp.calls.length, helper: s.h.calls.length, ui: s.ui.calls.length};
+  const access = {report: async token => { assert.equal(token, 'grant'); return {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true}; }};
+  const result = await s.run({env, access, credential: 'grant'});
+  assert.deepEqual(result, {managed: true, skipped: 'reauthorize_required', project: null, departments: [], teams: []});
+  assert.equal(s.head(), before.head);
+  assert.equal(teamFile(s.root), before.teams);
+  assert.equal(JSON.stringify(sync.readState(s.root)), before.state);
+  assert.equal(s.mcp.calls.length, before.calls);
+  assert.equal(s.h.calls.length, before.helper);
+  assert.equal(s.ui.calls.length, before.ui);
+});
+
+test('by department, an access report that does not ask to reauthorize (or cannot be read) does not block the sync', async () => {
+  const env = {FYSO_BIZ_ACCESS_ORGANIZATION: ORG};
+  const tools = ['departamentos_framework', 'listar_equipos', 'exportar_equipo'];
+  for (const access of [
+    {report: async () => ({capabilities: ['app:panel'], admin: false, departments: [], policy: null, reauthorizeRequired: false})},
+    {report: async () => { throw Error('biz_access_unavailable'); }},
+  ]) {
+    const s = setup({tools});
+    const result = await s.run({env, access, credential: 'grant'});
+    assert.equal(result.managed, true);
+    assert.equal(result.skipped, undefined);
+    assert.deepEqual(result.teams.map(t => t.equipoId), ['e1', 'e2']);
+  }
+});
+
+test('the legacy project path never asks for the access report', async () => {
+  const s = setup();
+  const access = {report: async () => assert.fail('legacy path')};
+  assert.equal((await s.run({access, credential: 'grant'})).managed, true);
 });

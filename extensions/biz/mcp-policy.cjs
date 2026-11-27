@@ -5,7 +5,7 @@ const rpc = new Set(['initialize', 'ping', 'notifications/initialized', 'tools/l
 function mcpPolicy({env = process.env, profiles, access = projectAccess({env})}) {
   return async function check(req, res) {
     const reply = status => res.writeHead(status, {'Cache-Control': 'no-store'}).end();
-    const enabled = env.FYSO_BIZ_ACCESS_ORGANIZATION || env.FYSO_BIZ_ACCESS_PROJECT;
+    const enabled = env.FYSO_BIZ_ACCESS_ORGANIZATION;
     if (!enabled) return reply(204);
     try {
       const chunks = [];

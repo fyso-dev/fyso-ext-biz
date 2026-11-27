@@ -81,7 +81,8 @@ function feedback({env, access, transport = fetch}) {
 
   function requestBiz(method, token, id, payload) {
     const target = new URL('/oauth/framework-feedback', origin(env.FYSO_BIZ_URL || ''));
-    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION, project: env.FYSO_BIZ_ACCESS_PROJECT});
+    target.search = new URLSearchParams({organization: env.FYSO_BIZ_ACCESS_ORGANIZATION});
+    if (env.FYSO_BIZ_ACCESS_PROJECT) target.searchParams.set('project', env.FYSO_BIZ_ACCESS_PROJECT);
     const headers = {Authorization: `Bearer ${token}`};
     if (method === 'GET') target.searchParams.set('id', id);
     else headers['Content-Type'] = 'application/json';

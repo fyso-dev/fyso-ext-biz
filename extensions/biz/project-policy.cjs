@@ -1,4 +1,4 @@
-const {projectAccess} = require('./project-access.cjs');
+const {projectAccess, reportOf} = require('./project-access.cjs');
 
 const signIn = '/api/ext/biz/profile/sign-in';
 const profileRoutes = new Map([
@@ -104,9 +104,23 @@ function capability(method, path) {
   return null;
 }
 
+/**
+ * The framework-freedom capability a panel action also needs, when Biz sends the person's
+ * policy (`framework:*`). It narrows the action capability above, never widens it, and is
+ * skipped for a Biz that sends no policy. Only the actions the panel exposes can be gated
+ * here; machine access, shell, publishing and AI have no panel action (see docs/integration.md).
+ * An MCP server may be a catalog one or any: the policy cannot tell them apart from the path,
+ * so `catalog` is the floor and the framework core decides the rest.
+ */
+function frameworkRequirement(method, path) {
+  const permission = capability(method, path);
+  if (permission === 'action:connectors:manage') return 'framework:mcp_servers:catalog';
+  return null;
+}
+
 function projectPolicy({env = process.env, profiles, access = projectAccess({env})} = {}) {
   return async function check(req, res) {
-    const configured = env.FYSO_BIZ_ACCESS_ORGANIZATION || env.FYSO_BIZ_ACCESS_PROJECT;
+    const configured = env.FYSO_BIZ_ACCESS_ORGANIZATION;
     const reply = status => res.writeHead(status, {'Cache-Control': 'no-store'}).end();
     if (!configured) return reply(204);
     if (!req.headers['remote-user']) return reply(401);
@@ -130,12 +144,14 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
     const permission = capability(method, path);
     if (!permission && !entryOnly) return reply(403);
     try {
-      const granted = new Set(await access.capabilities(session.accessToken));
-      return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) ? 204 : 403);
+      const report = await reportOf(access, session.accessToken);
+      const granted = new Set(report.capabilities);
+      const required = report.policy && !entryOnly ? frameworkRequirement(method, path) : null;
+      return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) && (!required || granted.has(required)) ? 204 : 403);
     } catch {
       return reply(503);
     }
   };
 }
 
-module.exports = {projectPolicy};
+module.exports = {projectPolicy, frameworkRequirement};

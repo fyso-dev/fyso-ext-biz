@@ -128,3 +128,20 @@ test('human-requests: answering a task needs the workflow run permission, the wi
   assert.equal(await check(handler, '/api/dagu/wiki/page', {method: 'DELETE'}), 204);
   assert.equal(await check(handler, '/api/dagu/wiki/other'), 403);
 });
+
+test('works with the organization alone and narrows connector management by the framework policy', async () => {
+  const organizationOnly = {FYSO_WEB_DOMAIN: 'project.test', FYSO_BIZ_ACCESS_ORGANIZATION: 'acme'};
+  let report = {capabilities: ['app:panel', 'action:connectors:manage'], admin: false, departments: [], policy: null};
+  const handler = projectPolicy({env: organizationOnly, profiles: {current: () => ({accessToken: 'person'})},
+    access: {report: async () => report}});
+  const add = () => check(handler, '/api/connectors/mcp', {method: 'POST'});
+  // A Biz that sends no policy: the action capability decides, as before.
+  assert.equal(await add(), 204);
+  // With a policy, the framework capability is required too.
+  report = {...report, policy: {preset: 'cuidado'}};
+  assert.equal(await add(), 403);
+  report = {...report, capabilities: [...report.capabilities, 'framework:mcp_servers:catalog']};
+  assert.equal(await add(), 204);
+  // Unconfigured stays open.
+  assert.equal(await check(projectPolicy({env: {FYSO_WEB_DOMAIN: 'project.test'}, profiles: {}}), '/'), 204);
+});

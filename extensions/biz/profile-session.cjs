@@ -1,7 +1,7 @@
 const {feedback} = require('./feedback.cjs');
 const {createHash, randomBytes} = require('node:crypto');
 const {addresses, origin, store} = require('./auth.cjs');
-const {projectAccess} = require('./project-access.cjs');
+const {projectAccess, reportOf} = require('./project-access.cjs');
 
 const LOGIN_TTL = 10 * 60 * 1000;
 const SESSION_TTL = 60 * 60 * 1000;
@@ -43,7 +43,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
   const cookie = (name, value, ms) =>
     `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(ms / 1000)}${secure ? '; Secure' : ''}`;
   const respond = (res, status, headers = {}) => res.writeHead(status, {'Cache-Control': 'no-store', ...headers}).end();
-  const enabled = Boolean(env.FYSO_BIZ_ACCESS_ORGANIZATION && env.FYSO_BIZ_ACCESS_PROJECT);
+  const enabled = Boolean(env.FYSO_BIZ_ACCESS_ORGANIZATION);
 
   function current(req) {
     const id = cookieValue(req, sessionCookie);
@@ -162,11 +162,16 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         break;
       case 'GET /profile/access': {
         const session = current(req);
-        const capabilities = session ? await access.capabilities(session.accessToken) : [];
+        const report = session ? await reportOf(access, session.accessToken)
+          : {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: false};
+        const {capabilities} = report;
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
         const remoteCredentialPath = secure && capabilities.includes('app:mcp')
           ? '/api/ext/biz/profile/mcp-token' : undefined;
-        res.end(JSON.stringify({capabilities, remoteCredentialPath}));
+        // `departments`, `admin` and `policy` feed the panel's "Your departments" tab; they are display data only.
+        res.end(JSON.stringify({capabilities, remoteCredentialPath, admin: report.admin,
+          departments: report.departments, policy: report.policy,
+          ...(report.reauthorizeRequired ? {reauthorizeRequired: true} : {})}));
         break;
       }
       case 'GET /profile/status':

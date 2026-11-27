@@ -7,8 +7,9 @@ import { forget, read, remember, remembered } from "../api/read";
 import { Teams } from "./Teams";
 import { Business } from "./Business";
 import { Work } from "./Work";
+import { Access, useBizAccess } from "./Access";
 
-type Tab = "teams" | "business" | "work";
+type Tab = "teams" | "business" | "work" | "access";
 
 export function Biz() {
   const {t} = useTranslation();
@@ -24,6 +25,8 @@ export function Biz() {
   const [leaving, setLeaving] = useState(false);
   const [context, setContext] = useState<BizSnapshot>();
   const [tab, setTab] = useState<Tab>(()=>{ try { return sessionStorage.getItem("biz.tab") === "business" ? "business" : "teams"; } catch { return "teams"; } });
+  // Biz-managed access only: the person's departments and framework freedom (null otherwise).
+  const access = useBizAccess();
   const bizBot = s.runtimeBots.data?.find(b=>b.name === "Biz Partner");
   const epoch = useRef(0);
 
@@ -84,8 +87,9 @@ export function Biz() {
         <button type="button" role="tab" aria-selected={tab === "teams"} aria-pressed={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
         <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
         <button type="button" role="tab" aria-selected={tab === "work"} aria-pressed={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
+        {access && <button type="button" role="tab" aria-selected={tab === "access"} aria-pressed={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
       </div>
-      {tab === "teams"
+      {tab === "access" && access ? <Access access={access} /> : tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
         : tab === "business" ? <Business onContext={setContext} /> : <Work />}
       {tab === "teams" && connection.method === "oauth" && <Mail />}
