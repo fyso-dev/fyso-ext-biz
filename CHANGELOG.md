@@ -11,6 +11,7 @@ Versions are the Git tags of this repository. Earlier releases are described in 
 - The MCP policy now enforces the policy: a `cuidado` or frozen person may only call read tools.
 - The mise environment sets `FYSO_DIST_BIZ_URL`, `FYSO_DIST_BIZ_ORGANIZATION` and `FYSO_DIST_BIZ_TOKEN_CMD` (`profile-token.cjs`) for the framework's Biz transport. Requires agentic-framework with the Biz transport (PR #131) and a Biz with the managed-setup endpoints (fyso-business ADR 0134).
 - Fix: the managed-teams reauthorize guard now reads the access report with the profile token (it sent the agent grant), and a failed read blocks the destructive steps (unflagging, re-recording departments) instead of allowing them.
+- Found by the end-to-end test against a fake Biz: the publisher registers its own age key before its first publish (a first publish with secrets failed), a project that never started snapshots by committing only, unfreezing installs the setup again so the removed secrets return, a second freeze does not leave an already removed secret pending, and a sync that installed nothing no longer reports replaced files.
 
 ## v0.6.0
 
