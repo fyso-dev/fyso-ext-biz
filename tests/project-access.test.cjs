@@ -181,3 +181,23 @@ test('invalidate drops the cached report of one token and the cache stays bounde
   await c.access.report('t0');
   assert.equal(c.calls(), before + 1);
 });
+
+test('gives the report and decision calls a 15 s budget and other calls 5 s', async () => {
+  const spy = () => {
+    const timeouts = [];
+    const original = AbortSignal.timeout;
+    AbortSignal.timeout = ms => { timeouts.push(ms); return original.call(AbortSignal, ms); };
+    return {timeouts, restore: () => { AbortSignal.timeout = original; }};
+  };
+  const {timeouts, restore} = spy();
+  try {
+    const access = projectAccess({env, transport: async url => {
+      if (url.pathname === '/oauth/userinfo') return Response.json({sub: 'p', scope: 'framework_access', organization: 'acme'});
+      return url.searchParams.has('capability') ? Response.json({allowed: true}) : Response.json({capabilities: ['app:dagu']});
+    }});
+    await access.identity('tok');
+    await access.report('tok');
+    await access.can('tok2', 'app:dagu');
+    assert.deepEqual(timeouts, [5000, 15000, 15000]);
+  } finally { restore(); }
+});

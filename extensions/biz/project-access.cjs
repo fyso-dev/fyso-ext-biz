@@ -49,20 +49,22 @@ function setupOf(value) {
 // Access reports are cached per profile token: fresh for 30 s, usable as a fallback for 5 min when
 // Biz fails transiently, at most 100 tokens (oldest evicted).
 const REPORT_TTL = 30_000, REPORT_STALE = 300_000, REPORT_MAX = 100;
+// Report and decision calls are slow server-side (~4 s in production): 15 s for them, 5 s for the rest.
+const ACCESS_TIMEOUT = 15_000;
 
 function projectAccess({env = process.env, transport = fetch, now = Date.now} = {}) {
   const cache = new Map();     // sha256(token) -> {at, report}
   const inflight = new Map();  // sha256(token) -> Promise<report>
   const keyOf = token => createHash('sha256').update(String(token)).digest('hex');
 
-  async function get(path, profileToken, {method = 'GET', body} = {}) {
+  async function get(path, profileToken, {method = 'GET', body, timeout = 5000} = {}) {
     if (typeof profileToken !== 'string' || !profileToken) throw Error('profile_required');
     const response = await transport(new URL(path, origin(env.FYSO_BIZ_URL || '')), {
       method,
       headers: {Authorization: `Bearer ${profileToken}`, Accept: 'application/json', ...(body ? {'Content-Type': 'application/json'} : {})},
       ...(body ? {body: JSON.stringify(body)} : {}),
       redirect: 'error',
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(timeout),
     });
     if (!response.ok) throw Object.assign(Error('biz_access_unavailable'), {status: response.status});
     return response.status === 204 ? null : response.json();
@@ -100,7 +102,7 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now} = 
       if (hit && now() - hit.at < REPORT_TTL && !hit.report.reauthorizeRequired && hit.report.frozen !== true) {
         return hit.report.capabilities.includes(capability);
       }
-      const decision = await get(query(capability), profileToken);
+      const decision = await get(query(capability), profileToken, {timeout: ACCESS_TIMEOUT});
       if (typeof decision?.allowed !== 'boolean') throw Error('invalid_biz_access_decision');
       return decision.allowed;
     },
@@ -145,7 +147,7 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now} = 
     },
 
     async fetchReport(profileToken) {
-      const report = await get(query(), profileToken);
+      const report = await get(query(), profileToken, {timeout: ACCESS_TIMEOUT});
       if (!Array.isArray(report?.capabilities) ||
           report.capabilities.some(value => typeof value !== 'string')) throw Error('invalid_biz_access_decision');
       // `reauthorize_required`: an old grant whose identity Biz cannot recover. It is not "no
