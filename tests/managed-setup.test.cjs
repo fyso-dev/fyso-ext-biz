@@ -471,3 +471,19 @@ test('resolving conflicts passes --ours/--theirs by file name, then publishes, a
   await assert.rejects(h.s.mergeAndPublish({ours: ['a.md']}), {message: 'merge_conflict'});
   assert.ok(!h.calls.some(c => c.includes('dist:publish')));
 });
+
+test('sync: a newer setup that conflicts with a publisher\'s edits pauses publishing with the files (not a generic failure)', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  fs.mkdirSync(path.join(h.env.FYSO_DATA, 'dist'), {recursive: true});
+  fs.writeFileSync(path.join(h.env.FYSO_DATA, 'dist/merge-conflicts.json'), JSON.stringify({files: ['project/wiki/w.md']}));
+  h.state.current = report({admin: true, etag: 'newer', setup: {...SETUP, version: 'v3'}});
+  fs.writeFileSync(path.join(h.root, '.copier-answers.dist.yml'), '_commit: v2\n');
+  h.exits['dist:update'] = [4];
+  require('../extensions/biz/managed-setup.cjs').writeState(h.env, {...readState(h.env), recipientsEtag: 'r1'});
+  const result = await h.s.sync();
+  assert.deepEqual([result.status, result.files], ['conflict', ['project/wiki/w.md']]);
+  assert.deepEqual(readState(h.env).publishPaused.files, ['project/wiki/w.md']);
+  assert.equal(readState(h.env).notices.at(-1).kind, 'merge_conflict');
+  assert.ok(!readState(h.env).notices.some(n => n.kind === 'failed'));
+});

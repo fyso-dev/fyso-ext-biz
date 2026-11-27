@@ -262,7 +262,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     // After an unfreeze the delivered secrets are gone although the version is current: take the setup again.
     const restore = readState(env).restoreSecrets === true || (readState(env).secretsPending || []).length > 0;
     if (plan && (plan.up_to_date !== true || restore) && !selfPublished) {
-      try { mise('run', installed() ? 'dist:update' : 'dist:add', ...(installed() ? [] : ['biz'])); } catch (error) { throw Object.assign(Error('dist_failed'), {cause: error}); }
+      try { mise('run', installed() ? 'dist:update' : 'dist:add', ...(installed() ? [] : ['biz'])); } catch (error) { throw error.status === 4 ? conflictError() : Object.assign(Error('dist_failed'), {cause: error}); }
       installedNow = true;
     }
     // The framework records secrets it could not decrypt (this key is not a recipient yet); the next etag retries.
@@ -323,6 +323,13 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     }
   }
 
+  /** The `merge_conflict` error of a `dist:update` that exited 4, with the files `merge-conflicts.json` lists. */
+  function conflictError() {
+    let files = [];
+    try { files = names(JSON.parse(fs.readFileSync(path.join(env.FYSO_DATA || path.join(root, '.data'), 'dist', 'merge-conflicts.json'), 'utf8')).files); } catch { /* unreadable list */ }
+    return Object.assign(Error('merge_conflict'), {files});
+  }
+
   /** `dist:update` on a publisher merges; exit 4 is a conflict that left the project unchanged. */
   function distMerge({ours = [], theirs = []} = {}) {
     // Conflicts are resolved per file by name: `--ours` keeps the project's, `--theirs` takes the published one.
@@ -333,10 +340,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       if (readState(env).publishPaused) save({publishPaused: null});
       return output;
     } catch (error) {
-      if (error.status !== 4) throw error;
-      let files = [];
-      try { files = names(JSON.parse(fs.readFileSync(path.join(env.FYSO_DATA || path.join(root, '.data'), 'dist', 'merge-conflicts.json'), 'utf8')).files); } catch { /* unreadable list */ }
-      throw Object.assign(Error('merge_conflict'), {files});
+      throw error.status === 4 ? conflictError() : error;
     }
   }
 
@@ -485,6 +489,12 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       notify('applied', `Setup ${applied.version || '(none)'} applied${removedCount ? `; removed ${removedCount} item(s) not allowed by policy` : ''}${applied.replaced ? `; ${applied.replaced} locally edited file(s) replaced${applied.patched ? ' (a patch is kept in .data/dist)' : ''}` : ''}${applied.secretsPending?.length ? `; secrets pending until the publisher adds your key: ${applied.secretsPending.join(', ')}` : ''}`);
       return {...result, status: 'applied', ...applied};
     } catch (error) {
+      if (error.message === 'merge_conflict') {
+        // A publisher whose edits conflict with a newer setup: nothing was changed; pause auto-publishing until the person resolves it.
+        if (!readState(env).publishPaused) save({publishPaused: {files: error.files, at: new Date(now()).toISOString()}});
+        notify('merge_conflict', `The latest setup conflicts with local edits in ${error.files.join(', ') || 'some files'}. Nothing was changed; resolve them in the Setup tab.`);
+        return {status: 'conflict', files: error.files};
+      }
       notify('failed', `Sync failed (${error.message}); the next run tries again`);
       return {status: 'failed', error: error.message};
     }
