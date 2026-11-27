@@ -2,6 +2,10 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## v0.7.1
+
+- Fix: `copier update` failed with "Update the framework before enabling Biz-managed access" when `biz_access_organization` was set. Copier renders the old version in a temporary directory without `framework/panel/*.json`, so the missing access API read as version 0. The validator now refuses a missing or too-low access API only when the host's `extension-api.json` is present (a real host); the replay is tolerated.
+
 ## v0.7.0
 
 - Biz-managed setup: the organization's framework setup, published to Biz by an administrator as a distribution, reaches every member. New **Setup** tab: connect (profile login `framework_access`, age key registered with Biz, `dist:plan` plus the policy removals shown as a warning, snapshot, confirm), cancel (disconnect, nothing changed), disconnect and, for administrators, publish (`dist:publish`).

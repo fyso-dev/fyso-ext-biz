@@ -171,6 +171,37 @@ class Packaging(unittest.TestCase):
             self.assertIn('release fixture', (project / 'extensions/biz/panel/index.html').read_text())
             self.assert_people_only(project)
 
+    def test_managed_access_survives_a_native_update_without_the_framework_apis(self):
+        # The old version is replayed in a temporary directory without framework/panel/*.json.
+        for extra in ([], ['-d', 'biz_access_organization=other-org']):
+            with tempfile.TemporaryDirectory(prefix='biz-access-update-') as temporary:
+                base = Path(temporary)
+                source = base / 'source'
+                shutil.copytree(ROOT, source, ignore=shutil.ignore_patterns('.git', '.data', '__pycache__', 'node_modules'))
+                project = base / 'project'
+                self.host(project)
+                (project / 'framework/panel/access-api.json').write_text('{"version":1}\n')
+                def run(args, cwd):
+                    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=120)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                def commit(directory):
+                    run(['git', 'add', '.'], directory)
+                    run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], directory)
+                run(['git', 'init', '-q'], source)
+                commit(source)
+                run(['git', 'tag', 'v0.1.0'], source)
+                copier = ['uvx', '--from', 'copier==9.19.1', 'copier']
+                run(copier + ['copy', '--trust', '--defaults', '--vcs-ref', 'v0.1.0',
+                    '--data', 'biz_access_organization=fixture', str(source), str(project)], base)
+                run(['git', 'init', '-q'], project)
+                commit(project)
+                entry = source / 'extensions/biz/panel/index.html'
+                entry.write_text(entry.read_text() + '<!-- release fixture -->\n')
+                commit(source)
+                run(['git', 'tag', 'v0.1.1'], source)
+                run(copier + ['update', '--trust', '--defaults', '--answers-file', '.copier-answers.ext-biz.yml', '--vcs-ref', 'v0.1.1', *extra], project)
+                self.assertIn('release fixture', (project / 'extensions/biz/panel/index.html').read_text())
+
     def test_panel_publication_uses_the_existing_biz_installation(self):
         with tempfile.TemporaryDirectory(prefix='biz-publish-') as temporary:
             project = Path(temporary)
