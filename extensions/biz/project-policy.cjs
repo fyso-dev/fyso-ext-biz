@@ -1,6 +1,9 @@
 const {projectAccess, reportOf} = require('./project-access.cjs');
 const {isFrozen} = require('./managed-setup.cjs');
 const {allows} = require('./department-capabilities.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+const {addresses} = require('./auth.cjs');
 
 const signIn = '/api/ext/biz/profile/sign-in';
 const profileRoutes = new Map([
@@ -123,17 +126,103 @@ function frameworkRequirement(method, path) {
   return null;
 }
 
-function projectPolicy({env = process.env, profiles, access = projectAccess({env})} = {}) {
+// Hosts the framework itself serves (Caddyfile); an app file cannot claim them. `panel` is the
+// panel branch below and `auth` never goes through this gate.
+const frameworkHosts = new Map([['omb', 'app:omb'], ['dagu', 'app:dagu']]);
+const reservedHosts = new Set(['panel', 'auth', 'omb', 'dagu', 'biz']);
+const hostLabel = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const APPS_TTL = 30 * 1000;
+
+/**
+ * Subdomain -> app capability for the apps installed in the project root: an app whose `url` host is
+ * `<sub>.${FYSO_WEB_DOMAIN}` (framework/apps, project/apps/*, extensions/*, as in `inventoryOf`) maps
+ * `<sub>` to `app:<id>`. The framework hosts (omb, dagu) are fixed and cannot be overridden.
+ */
+function appHostsOf(root, domain) {
+  const hosts = new Map();
+  const list = dir => { try { return fs.readdirSync(path.join(root, dir)); } catch { return []; } };
+  const files = [
+    ...list('framework/apps').filter(file => file.endsWith('.yaml')).map(file => `framework/apps/${file}`),
+    ...list('project/apps').map(dir => `project/apps/${dir}/app.yaml`),
+    ...list('extensions').map(dir => `extensions/${dir}/app.yaml`),
+  ];
+  for (const file of files) {
+    let text;
+    try { text = fs.readFileSync(path.join(root, file), 'utf8'); } catch { continue; }
+    const id = /^id:\s*["']?([A-Za-z0-9_-]+)["']?\s*(?:#.*)?$/m.exec(text)?.[1];
+    const url = /^url:\s*["']?([^"'\s#]+)["']?\s*(?:#.*)?$/m.exec(text)?.[1];
+    if (!id || !url) continue;
+    let host;
+    try { host = new URL(url.replace(/\$\{FYSO_WEB_DOMAIN\}/g, domain).replace(/\$\{[A-Z_]+\}/g, '0')).hostname.toLowerCase(); } catch { continue; }
+    if (!host.endsWith(`.${domain}`)) continue;
+    const sub = host.slice(0, -domain.length - 1);
+    if (hostLabel.test(sub) && !reservedHosts.has(sub) && !hosts.has(sub)) hosts.set(sub, `app:${id}`);
+  }
+  return hosts;
+}
+
+/** `<sub>` of `<sub>.${domain}`, or null (also for the bare domain and nested subdomains). */
+function subdomainOf(host, domain) {
+  if (typeof host !== 'string' || !domain) return null;
+  const name = host.toLowerCase();
+  if (!name.endsWith(`.${domain.toLowerCase()}`)) return null;
+  const sub = name.slice(0, -domain.length - 1);
+  return hostLabel.test(sub) ? sub : null;
+}
+
+function projectPolicy({env = process.env, profiles, access = projectAccess({env}), root = process.cwd(), now = Date.now} = {}) {
+  let appHosts = null, appHostsAt = 0;
+  const hostCapability = sub => {
+    if (!appHosts || now() - appHostsAt > APPS_TTL) { appHosts = appHostsOf(root, env.FYSO_WEB_DOMAIN); appHostsAt = now(); }
+    return frameworkHosts.get(sub) ?? appHosts.get(sub) ?? null;
+  };
+
+  /**
+   * Another host of the project (omb., dagu., docs., biz., an app's own). The UIs behind them have
+   * their own per-request semantics, so any method and path is allowed when the person holds
+   * `app:panel` and the host's app capability. The profile cookie is host-only on the panel and never
+   * reaches these hosts, so the gateway's `Remote-User` finds the person's latest live profile session
+   * (which was bound to that same user when it was created). No session: 403, and a sign-in
+   * redirect to the panel for a navigation to `/`. A frozen project allows reads only.
+   */
+  async function appHost(req, res, {sub, method, path, reply}) {
+    // The login for the agent's own Biz connection (`/login`, then Biz returns to `/callback`): it
+    // changes state, so it needs the Biz page and is refused while frozen.
+    const login = sub === 'biz';
+    if (login && !(method === 'GET' && (path === '/login' || path === '/callback'))) return reply(403);
+    const permission = login ? 'page:extension:biz' : hostCapability(sub);
+    if (!permission) return reply(403);
+    const session = profiles.forUser?.(req.headers['remote-user']) ?? null;
+    if (!session) {
+      if (method === 'GET' && path === '/') {
+        try { return res.writeHead(303, {'Cache-Control': 'no-store', Location: new URL(signIn, addresses(env).page).href}).end(); } catch { /* no public address */ }
+      }
+      return reply(403);
+    }
+    try {
+      const report = await reportOf(access, session.accessToken);
+      if (report.frozen === true || isFrozen(env)) return reply(!login && read.has(method) ? 204 : 403);
+      const granted = new Set(report.capabilities);
+      return reply(granted.has('app:panel') && allows(granted, permission) ? 204 : 403);
+    } catch {
+      return reply(503);
+    }
+  }
+
   return async function check(req, res) {
     const configured = env.FYSO_BIZ_ACCESS_ORGANIZATION;
     const reply = status => res.writeHead(status, {'Cache-Control': 'no-store'}).end();
     if (!configured) return reply(204);
     if (!req.headers['remote-user']) return reply(401);
-    if (req.headers['x-fyso-policy-host'] !== `panel.${env.FYSO_WEB_DOMAIN}`) return reply(403);
+    const host = req.headers['x-fyso-policy-host'];
+    const panel = host === `panel.${env.FYSO_WEB_DOMAIN}`;
+    const sub = panel ? null : subdomainOf(host, env.FYSO_WEB_DOMAIN);
+    if (!panel && !sub) return reply(403);
     const method = req.headers['x-forwarded-method'];
     const path = req.headers['x-fyso-policy-path'] || '';
     if (path.includes('%') || path.includes('\\') || path.includes('//') ||
         path.split('/').some(segment => segment === '.' || segment === '..')) return reply(403);
+    if (!panel) return appHost(req, res, {sub, method, path, reply});
     if (method === 'GET' && path === '/' && !profiles.current(req)) {
       return res.writeHead(303, {'Cache-Control': 'no-store', Location: signIn}).end();
     }

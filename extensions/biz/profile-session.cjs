@@ -258,7 +258,19 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     return session && session.expiresAt > now() ? session : null;
   }
 
-  return {handle, current, remote, revoke};
+  /**
+   * The most recent live profile session of a web user, for requests that cannot carry the profile
+   * cookie (it is host-only on the panel, so other app hosts never receive it). The gateway's
+   * `Remote-User` is the credential; the session was bound to that user when it was created.
+   */
+  function forUser(user) {
+    if (typeof user !== 'string' || !user) return null;
+    let found = null;
+    for (const session of sessions.values()) if (session.user === user && session.expiresAt > now()) found = session;
+    return found;
+  }
+
+  return {handle, current, forUser, remote, revoke};
 }
 
 module.exports = {profileSessions};

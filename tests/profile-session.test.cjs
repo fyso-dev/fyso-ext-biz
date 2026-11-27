@@ -206,3 +206,31 @@ test('a failed preview keeps the grant when Biz is unavailable or errors, and dr
   assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 401}))).logouts, 1);
   assert.equal((await failedPreview(Error('reauthorize_required'))).logouts, 1);
 });
+
+test('forUser finds the latest live session of a web user, for hosts that never receive the cookie', async () => {
+  let now = 1000;
+  const profiles = profileSessions({
+    env, now: () => now,
+    auth: {
+      async beginProfile() { return {state: `s${now}`, url: 'https://biz.test/oauth/authorize?state=x'}; },
+      async finishProfile() { return {accessToken: `token-${now}`, expiresAt: now + 60_000}; },
+    },
+    access: {identity: async () => ({}), invalidate() {}},
+  });
+  const login = async user => {
+    const begun = await invoke(profiles, request('/profile/login', user, {method: 'POST'}));
+    const binding = /fyso_biz_profile_state=([^;]+)/.exec(begun.headers['Set-Cookie'])[1];
+    const done = await invoke(profiles, request(`/profile/callback?state=s${now}&code=c`, user, {cookie: `__Host-fyso_biz_profile_state=${binding}`}));
+    assert.equal(done.status, 303);
+  };
+  assert.equal(profiles.forUser('ana'), null);
+  await login('ana');
+  assert.equal(profiles.forUser('ana').accessToken, 'token-1000');
+  now = 2000;
+  await login('ana');
+  assert.equal(profiles.forUser('ana').accessToken, 'token-2000');
+  assert.equal(profiles.forUser('bob'), null);
+  assert.equal(profiles.forUser(''), null);
+  now = 2000 + 61_000;
+  assert.equal(profiles.forUser('ana'), null);
+});
