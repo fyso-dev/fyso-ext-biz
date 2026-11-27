@@ -2,6 +2,7 @@ const {feedback} = require('./feedback.cjs');
 const {createHash, randomBytes} = require('node:crypto');
 const {addresses, origin, store} = require('./auth.cjs');
 const {projectAccess, reportOf} = require('./project-access.cjs');
+const {allows, concrete} = require('./department-capabilities.cjs');
 
 const LOGIN_TTL = 10 * 60 * 1000;
 const SESSION_TTL = 60 * 60 * 1000;
@@ -227,9 +228,10 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const session = current(req);
         const report = session ? await reportOf(access, session.accessToken)
           : {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: false};
-        const {capabilities} = report;
+        // The panel matches capabilities exactly, so wildcard grants (gateway only) are not listed.
+        const capabilities = concrete(report.capabilities);
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
-        const remoteCredentialPath = secure && capabilities.includes('app:mcp')
+        const remoteCredentialPath = secure && allows(report.capabilities, 'app:mcp')
           ? '/api/ext/biz/profile/mcp-token' : undefined;
         // `departments`, `admin` and `policy` feed the panel's "Your departments" tab; they are display data only.
         res.end(JSON.stringify({capabilities, remoteCredentialPath, admin: report.admin,

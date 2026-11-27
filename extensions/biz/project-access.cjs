@@ -1,5 +1,6 @@
 const {createHash} = require('node:crypto');
 const {origin} = require('./auth.cjs');
+const {allows, expandCapabilities, inventoryOf} = require('./department-capabilities.cjs');
 
 const text = value => typeof value === 'string' && value ? value : null;
 const level = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -52,7 +53,7 @@ const REPORT_TTL = 30_000, REPORT_STALE = 300_000, REPORT_MAX = 100;
 // Report and decision calls are slow server-side (~4 s in production): 15 s for them, 5 s for the rest.
 const ACCESS_TIMEOUT = 15_000;
 
-function projectAccess({env = process.env, transport = fetch, now = Date.now} = {}) {
+function projectAccess({env = process.env, transport = fetch, now = Date.now, root = process.cwd()} = {}) {
   const cache = new Map();     // sha256(token) -> {at, report}
   const inflight = new Map();  // sha256(token) -> Promise<report>
   const keyOf = token => createHash('sha256').update(String(token)).digest('hex');
@@ -100,7 +101,13 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now} = 
       // A fresh cached report answers without another Biz call; otherwise ask Biz for this capability.
       const hit = typeof profileToken === 'string' && cache.get(keyOf(profileToken));
       if (hit && now() - hit.at < REPORT_TTL && !hit.report.reauthorizeRequired && hit.report.frozen !== true) {
-        return hit.report.capabilities.includes(capability);
+        return allows(hit.report.capabilities, capability);
+      }
+      // TEMPORARY: until Biz sends page/action capabilities. Biz does not know the derived ones, so in
+      // department mode the (expanded) report decides, unless it is frozen or must be reauthorized.
+      if (!env.FYSO_BIZ_ACCESS_PROJECT && typeof profileToken === 'string' && profileToken) {
+        const report = await this.report(profileToken);
+        if (!report.reauthorizeRequired && report.frozen !== true) return allows(report.capabilities, capability);
       }
       const decision = await get(query(capability), profileToken, {timeout: ACCESS_TIMEOUT});
       if (typeof decision?.allowed !== 'boolean') throw Error('invalid_biz_access_decision');
@@ -152,7 +159,7 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now} = 
           report.capabilities.some(value => typeof value !== 'string')) throw Error('invalid_biz_access_decision');
       // `reauthorize_required`: an old grant whose identity Biz cannot recover. It is not "no
       // departments": the person must reconnect Fyso Biz.
-      return {capabilities: report.capabilities, admin: report.admin === true,
+      const base = {capabilities: report.capabilities, admin: report.admin === true,
         departments: departments(report.departments), policy: policy(report.policy),
         reauthorizeRequired: report.reauthorize_required === true,
         // Managed setup: the published setup, the response etag (changes with anything that
@@ -161,6 +168,8 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now} = 
         ...(setupOf(report.setup) ? {setup: setupOf(report.setup)} : {}), ...(text(report.etag) ? {etag: text(report.etag)} : {}),
         ...(report.recipients_pending > 0 && Number.isSafeInteger(report.recipients_pending) ? {recipientsPending: report.recipients_pending} : {}),
         ...(report.frozen === true ? {frozen: true} : {})};
+      // TEMPORARY: until Biz sends page/action capabilities (department mode only).
+      return env.FYSO_BIZ_ACCESS_PROJECT ? base : expandCapabilities(base, {inventory: inventoryOf(root)});
     },
 
     /** Register this installation's age public key for the organization's setup (one per person). */

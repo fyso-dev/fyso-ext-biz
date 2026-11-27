@@ -58,8 +58,11 @@ test('without a project the query carries only the organization', async () => {
     return Response.json({allowed: true, capabilities: ['app:panel']});
   }});
   assert.equal(await access.can('t', 'app:panel'), true);
-  assert.deepEqual(await access.capabilities('t'), ['app:panel']);
-  assert.deepEqual(urls, [{organization: 'acme', capability: 'app:panel'}, {organization: 'acme'}]);
+  // TEMPORARY translation (department-capabilities.cjs): derived page/action capabilities are added.
+  assert.deepEqual((await access.capabilities('t')).slice(0, 1), ['app:panel']);
+  assert.ok((await access.capabilities('t')).includes('action:feedback:submit'));
+  // In department mode the report decides (one Biz call), not a per-capability query.
+  assert.deepEqual(urls, [{organization: 'acme'}]);
   const none = projectAccess({env: {FYSO_BIZ_URL: env.FYSO_BIZ_URL}, transport: async () => assert.fail('not configured')});
   await assert.rejects(none.can('t', 'app:panel'), /biz_access_not_configured/);
 });

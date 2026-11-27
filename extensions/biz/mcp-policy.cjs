@@ -1,5 +1,6 @@
 const {projectAccess, reportOf} = require('./project-access.cjs');
 const {isFrozen} = require('./managed-setup.cjs');
+const {allows} = require('./department-capabilities.cjs');
 
 const rpc = new Set(['initialize', 'ping', 'notifications/initialized', 'tools/list']);
 // Biz's read tools; every other tool changes something. `cuidado` and a frozen project may only read.
@@ -28,13 +29,13 @@ function mcpPolicy({env = process.env, profiles, access = projectAccess({env})})
       const granted = new Set(report.capabilities);
       // Frozen means read-only: Biz sends no capabilities, so reads are allowed without them.
       const frozen = report.frozen === true || isFrozen(env);
-      if (!granted.has('app:mcp') && !frozen) return reply(403);
+      if (!allows(granted, 'app:mcp') && !frozen) return reply(403);
       if (rpc.has(method)) return reply(204);
       if (method !== 'tools/call' || typeof tool !== 'string' || !/^[a-z0-9_]{1,100}$/.test(tool)) return reply(403);
       const readOnly = frozen || report.policy?.preset === 'cuidado';
       if (readOnly && !READ_TOOL.test(tool)) return reply(403);
       if (frozen) return reply(204);
-      return reply(granted.has(`mcp:tool:${tool}`) ? 204 : 403);
+      return reply(allows(granted, `mcp:tool:${tool}`) ? 204 : 403);
     } catch {
       return reply(503);
     }
