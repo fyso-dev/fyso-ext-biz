@@ -101,3 +101,83 @@ test('an administrator reports the libre policy at its maximum; a person without
     policy: {preset: 'equilibrado', extensions: 1, mcp_servers: 1, bots: 1, read: 1, write: 1, shell: 1, publish: 0, ai: 1}})});
   assert.equal((await person.report('t')).policy.preset, 'equilibrado');
 });
+
+function cachedAccess(responses) {
+  let t = 1_000, calls = 0;
+  const access = projectAccess({env, now: () => t, transport: async () => {
+    calls++;
+    const next = typeof responses === 'function' ? responses(calls) : responses;
+    if (next instanceof Error) throw next;
+    return next;
+  }});
+  return {access, calls: () => calls, advance: ms => { t += ms; }};
+}
+const ok = (extra = {}) => Response.json({capabilities: ['app:panel'], ...extra});
+
+test('report: concurrent calls share one Biz request and later calls are cached for 30 s', async () => {
+  const c = cachedAccess(() => ok());
+  const reports = await Promise.all(Array.from({length: 10}, () => c.access.report('tok')));
+  assert.equal(c.calls(), 1);
+  assert.ok(reports.every(r => r === reports[0]));
+  c.advance(29_000);
+  await c.access.report('tok');
+  assert.equal(c.calls(), 1);
+  assert.equal(await c.access.can('tok', 'app:panel'), true);
+  assert.equal(c.calls(), 1);
+  c.advance(2_000);
+  await c.access.report('tok');
+  assert.equal(c.calls(), 2);
+  await c.access.report('other');
+  assert.equal(c.calls(), 3);
+});
+
+test('report: failures are not cached and reject every waiter', async () => {
+  const c = cachedAccess(n => n === 1 ? Response.json({}, {status: 503}) : ok());
+  const results = await Promise.allSettled([c.access.report('tok'), c.access.report('tok')]);
+  assert.ok(results.every(r => r.status === 'rejected'));
+  assert.equal(c.calls(), 1);
+  assert.deepEqual((await c.access.report('tok')).capabilities, ['app:panel']);
+  assert.equal(c.calls(), 2);
+});
+
+test('report: a stale report under five minutes old covers transient errors only', async () => {
+  for (const failure of [Response.json({}, {status: 503}), new TypeError('fetch failed')]) {
+    const c = cachedAccess(n => n === 1 ? ok() : failure);
+    await c.access.report('tok');
+    c.advance(60_000);
+    assert.deepEqual((await c.access.report('tok')).capabilities, ['app:panel']);
+    c.advance(300_000);
+    await assert.rejects(c.access.report('tok'));
+  }
+  for (const status of [401, 403]) {
+    const c = cachedAccess(n => n === 1 ? ok() : Response.json({}, {status}));
+    await c.access.report('tok');
+    c.advance(60_000);
+    await assert.rejects(c.access.report('tok'));
+  }
+});
+
+test('report: a fresh reauthorize or frozen answer replaces the cached report at once', async () => {
+  for (const [extra, key] of [[{capabilities: [], reauthorize_required: true}, 'reauthorizeRequired'], [{frozen: true}, 'frozen']]) {
+    const c = cachedAccess(n => n === 1 ? ok() : n === 2 ? ok(extra) : Response.json({}, {status: 503}));
+    await c.access.report('tok');
+    c.advance(31_000);
+    assert.equal((await c.access.report('tok'))[key], true);
+    c.advance(31_000);
+    assert.equal((await c.access.report('tok'))[key], true);
+  }
+});
+
+test('invalidate drops the cached report of one token and the cache stays bounded', async () => {
+  const c = cachedAccess(() => ok());
+  await c.access.report('tok');
+  c.access.invalidate('tok');
+  await c.access.report('tok');
+  assert.equal(c.calls(), 2);
+  for (let i = 0; i < 150; i++) await c.access.report(`t${i}`);
+  const before = c.calls();
+  await c.access.report('t149');
+  assert.equal(c.calls(), before);
+  await c.access.report('t0');
+  assert.equal(c.calls(), before + 1);
+});

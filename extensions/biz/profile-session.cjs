@@ -61,6 +61,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     const session = current(req);
     if (session) {
       sessions.delete(cookieValue(req, sessionCookie));
+      access.invalidate?.(session.accessToken);
       if (session.remoteDigest) remoteTokens.delete(session.remoteDigest);
     }
     const binding = cookieValue(req, bindingCookie);
@@ -87,6 +88,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
 
     revoke(req);
     const id = random();
+    access.invalidate?.(token.accessToken);
     sessions.set(id, {...identity, user, accessToken: token.accessToken, grant: token, expiresAt: now() + ttl});
     respond(res, 303, {Location: '/#/extensions/biz/overview', 'Set-Cookie': [
       cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
@@ -141,7 +143,8 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 2048) return json(400, {error: 'invalid_input'}); }
         const {digest} = JSON.parse(raw || '{}');
-        return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''}));
+        try { return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''})); }
+        finally { access.invalidate?.(session.accessToken); }
       }
       if (op === 'publish') return json(200, await managedSetup.publish());
       if (op === 'merge') {
@@ -150,6 +153,7 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const {ours, theirs} = JSON.parse(raw || '{}');
         return json(200, await managedSetup.mergeAndPublish({ours, theirs}));
       }
+      access.invalidate?.(session.accessToken);
       return json(200, managedSetup.disconnect());
     } catch (error) {
       // A cancelled first connect drops the grant it just saved, but only when the grant itself is the problem

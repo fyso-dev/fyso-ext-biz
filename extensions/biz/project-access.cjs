@@ -1,3 +1,4 @@
+const {createHash} = require('node:crypto');
 const {origin} = require('./auth.cjs');
 
 const text = value => typeof value === 'string' && value ? value : null;
@@ -45,7 +46,15 @@ function setupOf(value) {
     size: Number.isSafeInteger(value.size) ? value.size : null, sha256: text(value.sha256)};
 }
 
-function projectAccess({env = process.env, transport = fetch} = {}) {
+// Access reports are cached per profile token: fresh for 30 s, usable as a fallback for 5 min when
+// Biz fails transiently, at most 100 tokens (oldest evicted).
+const REPORT_TTL = 30_000, REPORT_STALE = 300_000, REPORT_MAX = 100;
+
+function projectAccess({env = process.env, transport = fetch, now = Date.now} = {}) {
+  const cache = new Map();     // sha256(token) -> {at, report}
+  const inflight = new Map();  // sha256(token) -> Promise<report>
+  const keyOf = token => createHash('sha256').update(String(token)).digest('hex');
+
   async function get(path, profileToken, {method = 'GET', body} = {}) {
     if (typeof profileToken !== 'string' || !profileToken) throw Error('profile_required');
     const response = await transport(new URL(path, origin(env.FYSO_BIZ_URL || '')), {
@@ -86,6 +95,11 @@ function projectAccess({env = process.env, transport = fetch} = {}) {
     },
 
     async can(profileToken, capability) {
+      // A fresh cached report answers without another Biz call; otherwise ask Biz for this capability.
+      const hit = typeof profileToken === 'string' && cache.get(keyOf(profileToken));
+      if (hit && now() - hit.at < REPORT_TTL && !hit.report.reauthorizeRequired && hit.report.frozen !== true) {
+        return hit.report.capabilities.includes(capability);
+      }
       const decision = await get(query(capability), profileToken);
       if (typeof decision?.allowed !== 'boolean') throw Error('invalid_biz_access_decision');
       return decision.allowed;
@@ -101,6 +115,36 @@ function projectAccess({env = process.env, transport = fetch} = {}) {
      * does not send them yields `admin: false`, `departments: []`, `policy: null` and `false`.
      */
     async report(profileToken) {
+      if (typeof profileToken !== 'string' || !profileToken) throw Error('profile_required');
+      const key = keyOf(profileToken);
+      const hit = cache.get(key);
+      if (hit && now() - hit.at < REPORT_TTL) return hit.report;
+      if (inflight.has(key)) return inflight.get(key);
+      const request = this.fetchReport(profileToken).then(report => {
+        cache.delete(key);
+        for (const [k, entry] of cache) if (now() - entry.at >= REPORT_STALE) cache.delete(k);
+        while (cache.size >= REPORT_MAX) cache.delete(cache.keys().next().value);
+        cache.set(key, {at: now(), report});
+        return report;
+      }, error => {
+        // Transient failure: keep the owner in with a report under five minutes old. A rejected
+        // credential (401/403) is never masked; a fresh reauthorize/frozen answer is a success and
+        // replaces the entry, so it takes effect at once.
+        const transient = error?.status >= 500 || (error?.status === undefined && error?.message !== 'invalid_biz_access_decision');
+        if (hit && now() - hit.at < REPORT_STALE && transient) return hit.report;
+        throw error;
+      }).finally(() => inflight.delete(key));
+      inflight.set(key, request);
+      return request;
+    },
+
+    /** Forget the cached report of a token (login, logout, revoke, setup changes). */
+    invalidate(profileToken) {
+      if (typeof profileToken !== 'string' || !profileToken) return;
+      cache.delete(keyOf(profileToken));
+    },
+
+    async fetchReport(profileToken) {
       const report = await get(query(), profileToken);
       if (!Array.isArray(report?.capabilities) ||
           report.capabilities.some(value => typeof value !== 'string')) throw Error('invalid_biz_access_decision');
