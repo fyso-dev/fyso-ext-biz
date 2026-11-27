@@ -270,3 +270,17 @@ test('the panel status payload shows frozen and "no access yet"', async () => {
   writeState(h.env, {connected: true, noAccess: true});
   assert.deepEqual([h.s.status().frozen, h.s.status().noAccess, h.s.status().version], [false, true, null]);
 });
+
+test('snapshot: a project that never started commits only; a started one takes the full snapshot', async () => {
+  const fresh = harness({plan: PLAN()});
+  await fresh.s.apply({digest: (await fresh.s.preview()).digest});
+  const first = fresh.calls.find(c => c.includes('snapshot'));
+  assert.equal(first, 'mise exec -- framework/scripts/snapshot.sh commit', 'OpenMausBot is not running before the first start');
+  assert.ok(!fresh.calls.includes('mise run snapshot'));
+
+  const started = harness({plan: PLAN()});
+  fs.mkdirSync(path.join(started.root, '.data/omb'), {recursive: true});
+  fs.writeFileSync(path.join(started.root, '.data/omb/.fyso-restored'), '');
+  await started.s.apply({digest: (await started.s.preview()).digest});
+  assert.ok(started.calls.includes('mise run snapshot'));
+});

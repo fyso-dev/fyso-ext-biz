@@ -160,7 +160,10 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     if (last && last.kind === kind && last.text === text) return;
     save({notices: [...(state.notices || []), {at: new Date(now()).toISOString(), kind, text}].slice(-NOTICES)});
   }
-  const snapshot = () => mise('run', 'snapshot');
+  // A project that never started has no bots or memory in OpenMausBot yet: git is the state (as dist.sh
+  // does before the first `up`), so only the commit step runs. Once started, the full snapshot is required.
+  const snapshot = () => fs.existsSync(path.join(root, '.data/omb/.fyso-restored'))
+    ? mise('run', 'snapshot') : sh('mise', ['exec', '--', 'framework/scripts/snapshot.sh', 'commit']);
 
   async function token() {
     try { return await store.profileAccessToken(); } catch { throw Error('not_connected'); }
