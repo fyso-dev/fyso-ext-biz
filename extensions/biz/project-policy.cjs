@@ -1,5 +1,6 @@
 const {projectAccess, reportOf} = require('./project-access.cjs');
 const {isFrozen} = require('./managed-setup.cjs');
+const {allows} = require('./department-capabilities.cjs');
 
 const signIn = '/api/ext/biz/profile/sign-in';
 const profileRoutes = new Map([
@@ -155,7 +156,7 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
       if (report.frozen === true || isFrozen(env)) return reply(read.has(method) ? 204 : 403);
       const granted = new Set(report.capabilities);
       const required = report.policy && !entryOnly ? frameworkRequirement(method, path) : null;
-      return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) && (!required || granted.has(required)) ? 204 : 403);
+      return reply(granted.has('app:panel') && (entryOnly || allows(granted, permission)) && (!required || allows(granted, required)) ? 204 : 403);
     } catch {
       return reply(503);
     }

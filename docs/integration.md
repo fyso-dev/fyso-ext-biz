@@ -91,6 +91,20 @@ Capability mapping in `project-policy.cjs`: the action capability of each route 
 
 Still needing a framework-core hook (no panel action or gate exists in the extension): `framework:extensions:catalog|any` (extension install and which catalogs), `framework:mcp_servers:any` (catalog vs custom server, the body is not visible to the policy), `framework:bots:create` (creating bots, which shares the `fyso-bots-apply` workflow with pulling Biz teams), `framework:machine:read|write[:ask]`, `framework:shell[:ask]` (agent computer, file and command permissions), `framework:publish` and `framework:ai:standard|high` (model choice and consumption).
 
+### Temporary: department capabilities derived locally
+
+TEMPORARY until Biz sends page/action capabilities. In department mode (no `FYSO_BIZ_ACCESS_PROJECT`) Biz sends `app:panel`, `app:mcp`, `framework:*`, `admin` and `departments[].role.levels` (`objetivos`, `agentes`, `fuentes`, 0 to 2), but not the page and action capabilities the panel and `project-policy.cjs` check. `department-capabilities.cjs` adds them once to the access report (so `/profile/access` and the gateway policy see the same set), keeping Biz's own. Delete the file, and the `expandCapabilities` call in `project-access.cjs`, when Biz sends them.
+
+- Applies only when `app:panel` is granted and the report is not `frozen` or `reauthorize_required`. Project mode is unchanged.
+- `admin: true` counts as level 2 in every area. A member gets the highest level of each area across departments (0 none, 1 read, 2 operate):
+  - `agentes` 1: bots, skills, observability, workflows list/runs, `workflow:*:read|read-outputs`, wiki read, `page:extension:*`, the Bots, Observability and Apps pages and extension/project apps; 2 adds `workflow:*:run`, wiki write, `action:extension:*` and the Dagu and chat apps.
+  - `fuentes` 1: `action:connectors:read` and the Connectors page; 2 adds manage, authorize, test and configure.
+  - `objetivos` 1: the `action:biz:read-*` ones; 2 adds `create-work` and `manage-mailboxes`.
+  - Everyone with the panel: `action:feedback:submit`, `page:extension:biz`, `action:biz:disconnect-agent` and the Setup page.
+  - `frameworkRequirement()` still narrows on top.
+- The gateway matches wildcard grants (`workflow:*:run`, `page:extension:*`, `action:extension:*`; `*` is one `:` segment, a trailing `*` is the rest). The panel matches exactly, so the report also lists the concrete ids it checks (`page:panel:<id>`, `app:<id>`, `page:extension:<ext>`, `workflow:<dag>:run`, `action:extension:<ext>:configure`), read from the project root (the process directory) when the report is fetched: `.copier-answers.ext-*.yml`, `framework/apps`, `project/apps/*/app.yaml`, `extensions/*/app.yaml` and `project/workflows`, `framework/workflows`. `/profile/access` omits the wildcard entries. The list follows installs within the 30 s report cache.
+- In department mode `can()` is answered from this report, since Biz does not know the derived capabilities.
+
 ## Biz-managed setup (v0.7.0)
 
 Needs Biz's managed-setup endpoints (`GET /oauth/framework-access` with `setup`, `etag`, `recipients_pending`, `frozen`; `/setup`; `/recipient`; `/recipients`, all with `?organization=`) and the framework's Biz transport (`dist:key`, `dist:plan --json`, `dist:add biz`, `dist:update`, `dist:publish`).
