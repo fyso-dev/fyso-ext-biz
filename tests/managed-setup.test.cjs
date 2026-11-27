@@ -27,7 +27,7 @@ function project() {
   return {root, env: {FYSO_DATA: data, FYSO_BIZ_ACCESS_ORGANIZATION: 'acme', FYSO_BIZ_URL: 'https://biz.test'}};
 }
 
-function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, teams = {managed: true, teams: []}, tokenFails = false} = {}) {
+function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, teams = {managed: true, teams: []}, tokenFails = false, sopsKeys = null} = {}) {
   const p = project();
   const calls = [];
   const state = {registered: [], grant: true, current: [].concat(reports || report())[0]};
@@ -46,6 +46,7 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
   };
   const run = (cmd, args) => {
     calls.push([cmd, ...args].join(' '));
+    if (cmd === 'sops' && args[0] === 'decrypt' && sopsKeys) return JSON.stringify(Object.fromEntries(sopsKeys.map(k => [k, 'v'])));
     if (cmd === 'mise' && args.includes('dist:key')) return `${KEY}\n`;
     if (cmd === 'mise' && args.includes('dist:plan')) return `log line\n${JSON.stringify(plan)}`;
     if (cmd === 'mise' && args.includes('ext:remove')) { fs.rmSync(path.join(p.root, `.copier-answers.ext-${args.at(-1)}.yml`)); return ''; }
@@ -180,7 +181,7 @@ test('freeze: access revoked after a setup makes the project read-only and delet
   const frozen = await h.s.sync();
   assert.equal(frozen.status, 'frozen');
   assert.equal(frozen.removedSecrets, 2);
-  assert.deepEqual(h.calls.filter(c => c.startsWith('sops')).map(c => c.split(' ').slice(-1)[0]).sort(), ['["API_KEY"]', '["OTHER"]']);
+  assert.deepEqual(h.calls.filter(c => c.startsWith('sops unset')).map(c => c.split(' ').slice(-1)[0]).sort(), ['["API_KEY"]', '["OTHER"]']);
   assert.equal(fs.existsSync(path.join(h.root, 'state/dist/secrets.sops.yaml')), false);
   assert.equal(isFrozen(h.env), true);
   // Everything else stays, and a second run stops without doing anything.
@@ -331,4 +332,14 @@ test('unfreeze: the setup is taken again although the version is current (the de
   h.calls.length = 0;
   await h.s.sync();
   assert.ok(!h.calls.some(c => /dist:(add|update)/.test(c)), 'a later change of an unchanged version installs nothing');
+});
+
+test('freeze: a secret that is already gone is not pending (second freeze after an unfreeze)', async () => {
+  const h = harness({plan: PLAN(), sopsKeys: ['OTHER', 'FYSO_ADMIN_PASSWORD']});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({frozen: true, capabilities: [], etag: 'f'});
+  const frozen = await h.s.sync();
+  assert.deepEqual([frozen.removedSecrets, frozen.pendingSecrets], [2, 0]);
+  assert.deepEqual(h.calls.filter(c => c.startsWith('sops unset')).map(c => c.split(' ').slice(-1)[0]), ['["OTHER"]']);
+  assert.deepEqual(readState(h.env).pendingSecrets, []);
 });

@@ -336,7 +336,12 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     const keyFile = env.SOPS_AGE_KEY_FILE || env.MISE_SOPS_AGE_KEY_FILE || env.FYSO_COMPOSIO_AGE_KEY_FILE;
     const sopsEnv = {...env, ...(keyFile ? {SOPS_AGE_KEY_FILE: keyFile} : {})};
     const left = [];
+    // A name that is already gone (an earlier freeze, a second freeze after an unfreeze) is done, not pending:
+    // `sops unset` fails on it. When the file cannot be listed, every name is tried.
+    let present = null;
+    try { present = new Set(Object.keys(JSON.parse(sh('sops', ['decrypt', '--output-type', 'json', 'secrets.enc.yaml'], {env: sopsEnv})))); } catch { /* try them all */ }
     for (const name of secretNames) {
+      if (present && !present.has(name)) continue;
       try { sh('sops', ['unset', 'secrets.enc.yaml', `["${name}"]`], {env: sopsEnv}); } catch { left.push(name); }
     }
     const delivered = path.join(root, SECRETS_FILE);
