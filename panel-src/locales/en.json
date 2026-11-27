@@ -215,6 +215,79 @@
     "syncRestoreName": "Restore «{{name}}»",
     "syncProposeName": "Propose «{{name}}»",
     "syncManaged": "Fyso Business manages this department for this project: changes are made there.",
-    "syncProposalsNotSupported": "Your Fyso Business does not accept change proposals yet."
+    "syncProposalsNotSupported": "Your Fyso Business does not accept change proposals yet.",
+    "tabAccess": "Your departments"
+  },
+  "access": {
+    "departmentsTitle": "Your departments",
+    "departmentsIntro": "The same ones you have in Fyso Biz. If they change there, they update here.",
+    "admin": "You are an organization administrator: you have full access.",
+    "none": "You are not in any department yet. Ask an administrator to add you in Fyso Biz.",
+    "noneAdmin": "You are not in any department, but as an administrator you can use everything.",
+    "role": {
+      "lider": "Lead",
+      "miembro": "Member",
+      "lectura": "Read only",
+      "custom": "Custom role"
+    },
+    "roleHint": {
+      "lider": "You can chat with the agents, run workflows and create bots.",
+      "miembro": "You can chat with the agents and run workflows. Creating bots here is up to a lead.",
+      "lectura": "You see what the agents do, without changing anything.",
+      "custom": "A tailored role defined in Fyso Biz."
+    },
+    "policyTitle": "Your freedom with the framework",
+    "policyNote": "Your administrator sets this in Fyso Biz; it does not depend on your departments.",
+    "preset": {
+      "cuidado": "Careful",
+      "equilibrado": "Balanced",
+      "libre": "Free",
+      "personalizado": "Custom"
+    },
+    "presetHint": {
+      "cuidado": "You use what you are given. Nothing to install and agents do not touch your machine.",
+      "equilibrado": "You install from the Fyso catalog and agents ask before changing anything on your machine.",
+      "libre": "You install what you want and agents work without asking.",
+      "personalizado": "A tailored setting from your administrator."
+    },
+    "policy": {
+      "extensions": [
+        "You cannot install extensions.",
+        "You install extensions from the Fyso catalog.",
+        "You install any extension."
+      ],
+      "mcp_servers": [
+        "You cannot connect MCP servers.",
+        "You connect MCP servers from the catalog.",
+        "You connect any MCP server."
+      ],
+      "bots": [
+        "You cannot create bots.",
+        "You can create bots."
+      ],
+      "read": [
+        "Agents do not read files on your machine.",
+        "Agents can read files on your machine."
+      ],
+      "write": [
+        "Agents change nothing on your machine.",
+        "Agents ask before changing anything on your machine.",
+        "Agents change your machine without asking."
+      ],
+      "shell": [
+        "Agents do not run commands.",
+        "Agents ask before running commands.",
+        "Agents run commands without asking."
+      ],
+      "publish": [
+        "You cannot publish or share.",
+        "You can publish and share."
+      ],
+      "ai": [
+        "You cannot use your own AI models.",
+        "You use standard AI models.",
+        "You also use the most capable AI models."
+      ]
+    }
   }
 }

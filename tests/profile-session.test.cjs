@@ -74,6 +74,7 @@ test('binds the one-time OAuth callback and session to the authenticated browser
   const report = await invoke(profiles, request('/profile/access', 'ana', {cookie: session}));
   assert.deepEqual(JSON.parse(report.body), {
     capabilities: ['app:panel', 'app:mcp'], remoteCredentialPath: '/api/ext/biz/profile/mcp-token',
+    admin: false, departments: [], policy: null,
   });
   const issue = () => invoke(profiles, request('/profile/mcp-token', 'ana', {method: 'POST', cookie: session}));
   const minted = await issue();

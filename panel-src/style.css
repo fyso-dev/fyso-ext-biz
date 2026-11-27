@@ -44,3 +44,8 @@
 .biz-partner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; }
 .biz-sync { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .biz-sync-row { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
+
+.biz-access-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.biz-access-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
+.biz-access-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.biz-access-policy { margin: 0; padding-left: 18px; display: grid; gap: 6px; }

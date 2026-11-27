@@ -215,6 +215,79 @@
     "syncRestoreName": "Restaurar «{{name}}»",
     "syncProposeName": "Proponer «{{name}}»",
     "syncManaged": "Fyso Business administra este departamento para este proyecto: los cambios se hacen allí.",
-    "syncProposalsNotSupported": "Tu Fyso Business todavía no recibe propuestas de cambio."
+    "syncProposalsNotSupported": "Tu Fyso Business todavía no recibe propuestas de cambio.",
+    "tabAccess": "Tus departamentos"
+  },
+  "access": {
+    "departmentsTitle": "Tus departamentos",
+    "departmentsIntro": "Los mismos que tenés en Fyso Biz. Si cambian allá, se actualizan acá.",
+    "admin": "Sos administrador de la organización: tenés acceso completo.",
+    "none": "Todavía no estás en ningún departamento. Pedile a un administrador que te sume en Fyso Biz.",
+    "noneAdmin": "No estás en ningún departamento, pero como administrador podés usar todo.",
+    "role": {
+      "lider": "Líder",
+      "miembro": "Miembro",
+      "lectura": "Solo lectura",
+      "custom": "Rol personalizado"
+    },
+    "roleHint": {
+      "lider": "Podés conversar con los agentes, correr workflows y crear bots.",
+      "miembro": "Podés conversar con los agentes y correr workflows. Crear bots acá lo hace un líder.",
+      "lectura": "Ves lo que hacen los agentes, sin cambiar nada.",
+      "custom": "Un rol a medida definido en Fyso Biz."
+    },
+    "policyTitle": "Tu libertad con el framework",
+    "policyNote": "Lo define tu administrador en Fyso Biz y no depende de tus departamentos.",
+    "preset": {
+      "cuidado": "Cuidado",
+      "equilibrado": "Equilibrado",
+      "libre": "Libre",
+      "personalizado": "Personalizado"
+    },
+    "presetHint": {
+      "cuidado": "Usás lo que te dan. Sin instalar nada y sin que los agentes toquen tu máquina.",
+      "equilibrado": "Instalás del catálogo de Fyso y los agentes piden permiso antes de cambiar algo en tu máquina.",
+      "libre": "Instalás lo que quieras y los agentes trabajan sin pedir permiso.",
+      "personalizado": "Un ajuste a medida de tu administrador."
+    },
+    "policy": {
+      "extensions": [
+        "No podés instalar extensiones.",
+        "Instalás extensiones del catálogo de Fyso.",
+        "Instalás cualquier extensión."
+      ],
+      "mcp_servers": [
+        "No podés conectar servidores MCP.",
+        "Conectás servidores MCP del catálogo.",
+        "Conectás cualquier servidor MCP."
+      ],
+      "bots": [
+        "No podés crear bots.",
+        "Podés crear bots."
+      ],
+      "read": [
+        "Los agentes no leen archivos de tu máquina.",
+        "Los agentes pueden leer archivos de tu máquina."
+      ],
+      "write": [
+        "Los agentes no cambian nada en tu máquina.",
+        "Los agentes piden permiso antes de cambiar algo en tu máquina.",
+        "Los agentes cambian tu máquina sin pedir permiso."
+      ],
+      "shell": [
+        "Los agentes no ejecutan comandos.",
+        "Los agentes piden permiso antes de ejecutar comandos.",
+        "Los agentes ejecutan comandos sin pedir permiso."
+      ],
+      "publish": [
+        "No podés publicar ni compartir.",
+        "Podés publicar y compartir."
+      ],
+      "ai": [
+        "No podés usar modelos de IA propios.",
+        "Usás modelos de IA estándar.",
+        "Usás también los modelos de IA más potentes."
+      ]
+    }
   }
 }

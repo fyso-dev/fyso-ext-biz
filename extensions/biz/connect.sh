@@ -10,6 +10,6 @@ if [[ -n "${FYSO_BIZ_PEOPLE_PROJECT:-}" || -n "${FYSO_BIZ_ACCESS_PROJECT:-}" ]];
   node extensions/biz/people-sync.cjs || true
 fi
 # Biz-managed access: deliver the teams Biz configured for this project.
-if [[ -n "${FYSO_BIZ_ACCESS_ORGANIZATION:-}" && -n "${FYSO_BIZ_ACCESS_PROJECT:-}" ]]; then
+if [[ -n "${FYSO_BIZ_ACCESS_ORGANIZATION:-}" ]]; then
   node extensions/biz/managed-teams.cjs
 fi

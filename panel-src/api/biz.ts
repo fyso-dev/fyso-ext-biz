@@ -29,3 +29,9 @@ export type BizSyncStatus = {publishSupported?:boolean; proposalsSupported?:bool
 export type BizProposed = {department:string; equipoId:string; proposal:BizProposal; commit:string|null; error?:string};
 export type BizPublished = {department:string; equipoId:string; version:number; commit:string|null; error?:string};
 export type BotsPlan = {plan:string[]; created:number; changed:number; deleted:number; removalRevision?:string};
+
+/** One of the person's departments in Biz and their role there (display data from /api/panel-access). */
+export type BizAccessDepartment = {id:string; name:string; role:{id:string|null; name:string|null; custom:boolean; levels:Record<string,number>}|null; teams:{id:string; name:string}[]};
+/** The person's framework freedom: a preset and the level (0-2) of each setting. */
+export type BizAccessPolicy = {preset:"cuidado"|"equilibrado"|"libre"|"personalizado"; extensions:number; mcp_servers:number; bots:number; read:number; write:number; shell:number; publish:number; ai:number};
+export type BizAccess = {admin:boolean; departments:BizAccessDepartment[]; policy:BizAccessPolicy|null};

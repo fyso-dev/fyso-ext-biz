@@ -1,7 +1,8 @@
 // Deliver the system Fyso Biz configured for this project (Biz-managed access). The
-// connection hook runs it when the install names a Biz organization and project
-// (`biz_access_organization`, `biz_access_project`). Biz lists the project's teams
-// (`proyectos_framework`); each team comes down through the normal department pull
+// connection hook runs it when the install names a Biz organization
+// (`biz_access_organization`; `biz_access_project` is the optional legacy scope). Biz lists the
+// teams of the person's departments (`departamentos_framework`), or the project's teams
+// (`proyectos_framework`) on an older Biz; each team comes down through the normal department pull
 // (teams-sync.cjs), its bots are recorded as managed by Biz through the framework's
 // `managed-bots.cjs`, and the proposed team file is applied through the panel's own
 // plan/apply (`panel-actions.sh`). Teams go one at a time so each apply is reviewed
@@ -14,9 +15,9 @@ const OWNER = 'biz';
 const ERRORS = ['managed_bots_not_supported', 'managed_teams_not_supported', 'organization_mismatch', 'project_not_assigned',
   'unexpected_response', 'apply_failed'];
 
-/** Managed access is configured only when both answers are set. */
+/** Managed access is configured when the organization is set; the project is the optional legacy scope. */
 function configured(env = process.env) {
-  return Boolean(env.FYSO_BIZ_ACCESS_ORGANIZATION && env.FYSO_BIZ_ACCESS_PROJECT);
+  return Boolean(env.FYSO_BIZ_ACCESS_ORGANIZATION);
 }
 
 /** The framework's managed-bots helper, or a clear error on an older framework. */
@@ -35,17 +36,39 @@ function panelActions(root, env = process.env) {
   };
 }
 
-/** The project's teams as Biz assigned them, checked against this install's answers. */
+const teamList = teams => {
+  if (!Array.isArray(teams)) return [];
+  if (teams.some(t => !t?.equipo_id)) throw Error('unexpected_response');
+  return teams.map(t => ({equipoId: String(t.equipo_id), name: t.nombre ?? null}));
+};
+
+/**
+ * The teams of the person's departments (`departamentos_framework`), checked against this
+ * install's organization. The departments replace the project: a team shared by two departments
+ * is delivered once.
+ */
+async function departmentTeams(mcp, env) {
+  const result = await mcp.call('departamentos_framework', {});
+  if (!result || !Array.isArray(result.departamentos)) throw Error('unexpected_response');
+  if (result.organizacion !== env.FYSO_BIZ_ACCESS_ORGANIZATION) throw Error('organization_mismatch');
+  const seen = new Map();
+  const departments = result.departamentos.map(d => {
+    for (const team of teamList(d?.equipos)) if (!seen.has(team.equipoId)) seen.set(team.equipoId, team);
+    return {id: String(d?.departamento_id ?? ''), name: d?.nombre ?? null};
+  });
+  return {project: null, departments, teams: [...seen.values()]};
+}
+
+/** The project's teams as Biz assigned them (legacy path), checked against this install's answers. */
 async function assignedTeams(mcp, env) {
   const organization = env.FYSO_BIZ_ACCESS_ORGANIZATION, project = env.FYSO_BIZ_ACCESS_PROJECT;
+  if (!project) throw Error('project_not_assigned');
   const result = await mcp.call('proyectos_framework', {proyecto_id: project});
   if (!result || !Array.isArray(result.proyectos)) throw Error('unexpected_response');
   if (result.organizacion !== organization) throw Error('organization_mismatch');
   const found = result.proyectos.find(p => String(p?.proyecto_id) === project);
   if (!found) throw Error('project_not_assigned');
-  const teams = Array.isArray(found.equipos) ? found.equipos : [];
-  if (teams.some(t => !t?.equipo_id)) throw Error('unexpected_response');
-  return {project: {id: project, name: found.nombre ?? null, level: found.nivel ?? null}, teams: teams.map(t => ({equipoId: String(t.equipo_id), name: t.nombre ?? null}))};
+  return {project: {id: project, name: found.nombre ?? null, level: found.nivel ?? null}, departments: [], teams: teamList(found.equipos)};
 }
 
 const recordById = (state, equipoId) => Object.entries(state.departments).find(([, r]) => r?.equipoId === equipoId);
@@ -65,8 +88,10 @@ async function deliver({mcp, root, env = process.env, tpl, helper, actions, git,
   actions ??= panelActions(root, env);
   await mcp.initialize();
   const tools = await mcp.tools();
-  if (!tools.some(t => t.name === 'proyectos_framework')) throw Error('managed_teams_not_supported');
-  const {project, teams} = await assignedTeams(mcp, env);
+  // Departments are the source when Biz offers them; the project is the fallback (older Biz).
+  const byDepartment = tools.some(t => t.name === 'departamentos_framework');
+  if (!byDepartment && !tools.some(t => t.name === 'proyectos_framework')) throw Error('managed_teams_not_supported');
+  const {project, departments: assigned, teams} = byDepartment ? await departmentTeams(mcp, env) : await assignedTeams(mcp, env);
   // Biz's current versions, to skip a team that is already applied.
   const versions = {};
   if (tools.some(t => t.name === 'listar_equipos')) {
@@ -104,7 +129,7 @@ async function deliver({mcp, root, env = process.env, tpl, helper, actions, git,
   }
   if (!todo.length) await helper.record({root, owner: OWNER, teamYaml: teamFile(), departments: [...departments], bots: [...bots]});
   await markManaged({root, equipoIds: teams.map(t => t.equipoId), git});
-  return {managed: true, project, teams: results};
+  return {managed: true, project, departments: assigned, teams: results};
 }
 
 /** The pull is applied, as the panel's status() records it: the department matches the package. */

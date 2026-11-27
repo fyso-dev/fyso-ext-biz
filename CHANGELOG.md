@@ -2,6 +2,15 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## Unreleased
+
+- Access by department: `biz_access_project` is optional. `biz_access_organization` alone enables managed access (panel and MCP policy, template slots, feedback, managed-teams delivery); `project` is sent to Biz only when set. Installs that still set it work unchanged.
+- `GET /oauth/framework-access` is read for the new optional `admin`, `departments` and `policy`; a Biz without them behaves as before. `GET /api/panel-access` returns them too.
+- Managed teams come from `departamentos_framework` when Biz offers it, falling back to `proyectos_framework` (its errors only on that path).
+- New panel tab **Your departments**: the person's departments with role, and their framework-freedom level.
+- With a policy present, MCP server management also requires `framework:mcp_servers:catalog`.
+- Template slot file names now depend on `biz_access_organization`.
+
 ## v0.5.2
 
 - People sync without managed access: the new optional answer `biz_people_project` (a Fyso Biz project UUID, env `FYSO_BIZ_PEOPLE_PROJECT`) syncs that project's people over the project's own Biz connection. It does not enable Biz-managed access, does not need the framework access API and does not change the panel login: `panel-access.caddy`, `authorize.caddy`, `mcp-authorize` and the Workflows and feedback pages remain tied to `biz_access_project`.
