@@ -34,9 +34,9 @@ function cookieValue(req, name) {
 }
 
 const GRANT_FAILURES = new Set(['not_connected', 'reauthorize_required', 'frozen', 'no_access', 'access_required']);
-const SETUP_OPS = new Map([['status', 'GET'], ['preview', 'POST'], ['confirm', 'POST'], ['cancel', 'POST'], ['publish', 'POST'], ['merge', 'POST'], ['disconnect', 'POST']]);
+const SETUP_OPS = new Map([['status', 'GET'], ['preview', 'POST'], ['publish-preview', 'POST'], ['confirm', 'POST'], ['cancel', 'POST'], ['publish', 'POST'], ['merge', 'POST'], ['disconnect', 'POST']]);
 // Statuses of the codes the setup answers with; anything else is an unexpected failure.
-const SETUP_STATUS = {setup_not_installed: 409, stale_base: 409, merge_conflict: 409, no_access: 403, not_connected: 409, reauthorize_required: 409, frozen: 403, access_required: 403, admin_required: 403, preview_changed: 409,
+const SETUP_STATUS = {setup_not_installed: 409, stale_base: 409, merge_conflict: 409, no_access: 403, not_connected: 409, reauthorize_required: 409, frozen: 403, access_required: 403, admin_required: 403, preview_changed: 409, preview_stale: 409, preview_required: 400, framework_update_required: 409, publish_failed: 502, unexpected_response: 502,
   busy: 409, not_renewable: 409, dist_failed: 502, key_unavailable: 502};
 
 function profileSessions({env = process.env, auth = store({env}), access = projectAccess({env}), now = Date.now, managedSetup} = {}) {
@@ -147,7 +147,18 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         try { return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''})); }
         finally { access.invalidate?.(session.accessToken); }
       }
-      if (op === 'publish') return json(200, await managedSetup.publish());
+      if (op === 'publish-preview') {
+        // Like preview, the distribution commands read the grant from disk.
+        auth.saveProfile(session.grant);
+        return json(200, await managedSetup.publishPreview());
+      }
+      if (op === 'publish') {
+        let raw = '';
+        for await (const chunk of req) { raw += chunk; if (raw.length > 2048) return json(400, {error: 'invalid_input'}); }
+        let body;
+        try { body = JSON.parse(raw || '{}'); } catch { return json(400, {error: 'invalid_input'}); }
+        return json(200, await managedSetup.publish({version: typeof body?.version === 'string' ? body.version : '', digest: typeof body?.digest === 'string' ? body.digest : ''}));
+      }
       if (op === 'merge') {
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 65536) return json(400, {error: 'invalid_input'}); }
@@ -160,13 +171,13 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       // A cancelled first connect drops the grant it just saved, but only when the grant itself is the problem
       // (rejected by Biz, or no access). Biz being down or erroring must not make the person sign in again.
       if (op === 'preview' && !managedSetup.status().connected && (GRANT_FAILURES.has(error.message) || [401, 403].includes(error.status))) auth.profileLogout();
-      json(SETUP_STATUS[error.message] || 502, {error: SETUP_STATUS[error.message] ? error.message : 'setup_failed', ...(error.files ? {files: error.files} : {})});
+      json(SETUP_STATUS[error.message] || 502, {error: SETUP_STATUS[error.message] ? error.message : 'setup_failed', ...(error.files ? {files: error.files} : {}), ...(typeof error.detail === 'string' && error.detail ? {detail: error.detail.slice(0, 500)} : {})});
     }
   }
 
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
-    const setupOp = /^\/profile\/setup\/([a-z]+)$/.exec(url.pathname)?.[1];
+    const setupOp = /^\/profile\/setup\/([a-z-]+)$/.exec(url.pathname)?.[1];
     if (setupOp && SETUP_OPS.get(setupOp) === req.method) {
       if (!enabled) { respond(res, 404); return true; }
       if (typeof req.headers['remote-user'] !== 'string' || !req.headers['remote-user']) { respond(res, 401); return true; }

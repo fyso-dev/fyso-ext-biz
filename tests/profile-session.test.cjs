@@ -200,6 +200,67 @@ async function failedPreview(error) {
   return {logouts, status: out.status};
 }
 
+test('the Setup panel previews before publishing and both languages have the preview strings', () => {
+  const fs = require('node:fs');
+  const read = file => fs.readFileSync(`${__dirname}/../${file}`, 'utf8');
+  const setupScreen = read('panel-src/screens/Setup.tsx');
+  assert.match(setupScreen, /run\("publish-preview"/);
+  assert.match(setupScreen, /run\("publish", \{version:pub\.version, digest:pub\.digest\}/);
+  assert.doesNotMatch(setupScreen, /run\("publish", undefined/);
+  assert.match(read('extensions/biz/panel/main.js'), /publish-preview/);
+  const [en, es] = ['en', 'es'].map(l => JSON.parse(read(`panel-src/locales/${l}.json`)).setup);
+  assert.deepEqual(Object.keys(en.pub).sort(), Object.keys(es.pub).sort());
+  for (const key of ['framework_update_required', 'preview_stale', 'publish_failed']) assert.ok(en.errors[key] && es.errors[key], key);
+  for (const key of ['connectedPublisher', 'publishedVersion']) assert.ok(en[key] && es[key], key);
+});
+
+// A signed-in browser user and the setup routes with a fake managed setup.
+async function withSession(managedSetup) {
+  const authLogin = {saveProfile() {}, async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
+    async finishProfile() { return {accessToken: 't', expiresAt: Date.now() + 3600000}; }};
+  const p = profileSessions({env, auth: authLogin, managedSetup, access: {async identity() { return {subject: 'x'}; }}});
+  const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
+  const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: login.headers['Set-Cookie'].split(';')[0]}));
+  const cookie = cb.headers['Set-Cookie'][1].split(';')[0];
+  const post = (op, body) => {
+    const req = request(`/profile/setup/${op}`, 'ana', {method: 'POST', cookie});
+    const raw = JSON.stringify(body ?? {});
+    req[Symbol.asyncIterator] = async function* () { yield raw; };
+    return invoke(p, req).then(out => ({...out, json: JSON.parse(out.body)}));
+  };
+  return {p, post};
+}
+
+test('publish-preview and publish: only through a profile session; publish passes the preview version and digest back', async () => {
+  const seen = [];
+  const {p, post} = await withSession({status: () => ({connected: true}),
+    async publishPreview() { seen.push('preview'); return {version: 'v4', digest: 'd'}; },
+    async publish(body) { seen.push(body); return {version: 'v4'}; }});
+  // Without a session: refused, and nothing runs.
+  assert.equal((await invoke(p, request('/profile/setup/publish-preview', 'ana', {method: 'POST'}))).status, 403);
+  assert.equal((await invoke(p, request('/profile/setup/publish', 'ana', {method: 'POST'}))).status, 403);
+  assert.equal((await invoke(p, request('/profile/setup/publish-preview', 'ana'))).handled, false, 'POST only');
+  assert.deepEqual(seen, []);
+  const preview = await post('publish-preview');
+  assert.deepEqual([preview.status, preview.json], [200, {version: 'v4', digest: 'd'}]);
+  const published = await post('publish', {version: 'v4', digest: 'd', extra: 1});
+  assert.equal(published.status, 200);
+  assert.deepEqual(seen, ['preview', {version: 'v4', digest: 'd'}]);
+});
+
+test('publish-preview and publish answer with the codes the panel acts on', async () => {
+  const failing = code => async () => { throw Object.assign(Error(code), {detail: 'tail'}); };
+  for (const [code, status] of [['framework_update_required', 409], ['stale_base', 409], ['preview_stale', 409], ['preview_required', 400], ['publish_failed', 502]]) {
+    const {post} = await withSession({status: () => ({connected: true}), publishPreview: failing(code), publish: failing(code)});
+    for (const op of ['publish-preview', 'publish']) {
+      const out = await post(op, {version: 'v4', digest: 'd'});
+      assert.deepEqual([out.status, out.json.error], [status, code], `${op} ${code}`);
+    }
+  }
+  const {post} = await withSession({status: () => ({connected: true}), publish: failing('publish_failed')});
+  assert.equal((await post('publish', {})).json.detail, 'tail');
+});
+
 test('a failed preview keeps the grant when Biz is unavailable or errors, and drops it when the grant is rejected', async () => {
   assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 503}))).logouts, 0);
   assert.equal((await failedPreview(Error('dist_failed'))).logouts, 0);

@@ -49,6 +49,17 @@ test('keeps sign-in routes reachable and denies native hosts and unmapped operat
   assert.equal(await check(handler, '/api/omb/bots'), 403);
 });
 
+test('the publish preview is a profile-session route: POST only, nothing else is opened', async () => {
+  const handler = projectPolicy({env, profiles: {current: () => null}});
+  assert.equal(await check(handler, '/api/ext/biz/profile/setup/publish-preview', {method: 'POST'}), 204);
+  assert.equal(await check(handler, '/api/ext/biz/profile/setup/publish-preview'), 403);
+  assert.equal(await check(handler, '/api/ext/biz/profile/setup/publish-preview', {method: 'POST', host: 'dagu.project.test'}), 403);
+  assert.equal(await check(handler, '/api/ext/biz/profile/setup/publish-previews', {method: 'POST'}), 403);
+  // The Caddy snippet strips the profile cookie from every setup route, this one included.
+  const caddy = fs.readFileSync(path.join(__dirname, '../extensions/biz/{{ \'authorize.caddy\' if biz_access_organization else \'\' }}.slotjinja'), 'utf8');
+  assert.match(caddy, /\/api\/ext\/biz\/profile\/setup\/\*/);
+});
+
 test('returns an unavailable decision without granting access', async () => {
   const handler = projectPolicy({
     env, profiles: {current: () => ({accessToken: 'person'})},

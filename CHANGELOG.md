@@ -2,6 +2,12 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
+## Unreleased
+
+- Feature: preview before publishing. **Publish this project's setup** now opens the framework's `dist:publish --dry-run --json` (new route `POST /profile/setup/publish-preview`): versions, files, bots, extensions, MCP servers, secret names, recipients and checks, with **Confirm publication** / **Cancel**; no changes or a failed check offers no confirmation, a stale base offers **Update and merge**. `publish` now needs the preview's `version` and `digest` and answers 409 `preview_stale` when the project changed since (the panel shows the new preview). A framework without `--dry-run` answers `framework_update_required`.
+- Fix: after a publish the Setup tab said "Setup v2 applied" and no notice was added. The version printed by `dist:publish` (or `dist:status`) is recorded as `version` and `selfPublished`, a `published` notice is added, and a publisher reads "Setup vN published by this project". The automatic republish does the same.
+- Fix: a failed publish only said `Command failed: mise run -q dist:key`. Commands now capture stderr; notices and the panel include its last 300 characters (secrets redacted), and `dist:key` is retried once.
+
 ## v0.7.1
 
 - Fix: `copier update` failed with "Update the framework before enabling Biz-managed access" when `biz_access_organization` was set. Copier renders the old version in a temporary directory without `framework/panel/*.json`, so the missing access API read as version 0. The validator now refuses a missing or too-low access API only when the host's `extension-api.json` is present (a real host); the replay is tolerated.

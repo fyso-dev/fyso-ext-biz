@@ -308,6 +308,7 @@
     "secretsPending": "Los secretos de la configuración todavía no están cifrados para la clave de esta instalación, por eso no se instalaron: {{names}}. Llegarán solos cuando la persona administradora publique de nuevo.",
     "paused": "La sincronización está en pausa ({{reason}}); no se cambió nada.",
     "connected": "Conectado. Setup {{version}} aplicado.",
+    "connectedPublisher": "Conectado. Setup {{version}} publicado por este proyecto.",
     "offered": "La organización ofrece el setup {{version}}.",
     "noneOffered": "La organización todavía no publicó un setup; solo aplican sus reglas.",
     "connect": "Conectar y revisar cambios",
@@ -342,7 +343,12 @@
       "dist_failed": "No se pudo aplicar la distribución.",
       "stale_base": "Otro administrador publicó un setup más nuevo. Actualizá y fusioná, y luego publicá de nuevo.",
       "merge_conflict": "El último setup entra en conflicto con tus cambios locales en los archivos de abajo. No se cambió nada.",
-      "setup_not_installed": "Este proyecto no instaló el setup que Biz ya tiene. Instalalo primero y luego publicá."
+      "setup_not_installed": "Este proyecto no instaló el setup que Biz ya tiene. Instalalo primero y luego publicá.",
+      "framework_update_required": "El framework de este proyecto es demasiado viejo para previsualizar una publicación. Actualizalo primero.",
+      "preview_stale": "El proyecto cambió después de la vista previa. Revisá la nueva vista previa y confirmá de nuevo.",
+      "preview_required": "Revisá la vista previa antes de publicar.",
+      "publish_failed": "No se pudo publicar el setup.",
+      "unexpected_response": "No se pudo leer la vista previa del framework."
     },
     "mergeAndPublish": "Actualizar y fusionar",
     "conflicts": "Archivos en conflicto",
@@ -350,6 +356,29 @@
     "installFirst": "Instalar primero el setup actual",
     "keepMine": "Quedarme con el mío",
     "takePublished": "Tomar el publicado",
-    "resolveMerge": "Resolver y fusionar"
+    "resolveMerge": "Resolver y fusionar",
+    "publishedVersion": "Setup {{version}} publicado.",
+    "pub": {
+      "title": "Qué se va a publicar",
+      "versions": "De {{base}} a {{version}}",
+      "versionsFirst": "Primera versión: {{version}}",
+      "noChanges": "No hay cambios para publicar.",
+      "blocked": "Falló una verificación, así que no se puede publicar nada: {{error}}",
+      "files": "Archivos ({{count}} en el setup)",
+      "bots": "Bots",
+      "extensions": "Extensiones",
+      "mcp": "Servidores MCP",
+      "secrets": "Secretos que se enviarán (solo nombres)",
+      "recipients": "Destinatarios: {{count}}",
+      "recipientsChanged": "Destinatarios: {{count}} (cambiaron)",
+      "checks": "Verificaciones",
+      "framework": "Framework {{version}}",
+      "added": "Agregados ({{count}})",
+      "modified": "Modificados ({{count}})",
+      "removed": "Quitados ({{count}})",
+      "confirm": "Confirmar publicación",
+      "cancel": "Cancelar",
+      "close": "Cerrar"
+    }
   }
 }
