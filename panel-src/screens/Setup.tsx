@@ -1,6 +1,7 @@
 import { useEffect, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import type { BizAccess } from "../api/biz";
+import { ConnectBiz } from "./Access";
 
 type Removals = {extensions:{id:string}[]; mcp_servers:{id:string}[]; bots:{name:string}[]; teams:{department:string}[]};
 type Preview = {setup:{version:string}|null; upToDate:boolean; removals:Removals; replaced:{path:string}[]; removalCount:number; digest:string; error?:string};
@@ -16,7 +17,7 @@ const post = async (op:string, body?:object) => {
  * be replaced or removed), the current state, and publishing for administrators. Display and requests
  * only; Biz and the framework decide.
  */
-export function Setup({access}:{access:BizAccess}) {
+export function Setup({access}:{access:BizAccess|null}) {
   const {t} = useTranslation();
   const [status, setStatus] = useState<SetupStatus>();
   const [preview, setPreview] = useState<Preview>();
@@ -26,7 +27,13 @@ export function Setup({access}:{access:BizAccess}) {
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [choice, setChoice] = useState<Record<string, "ours"|"theirs">>({});
   const [notInstalled, setNotInstalled] = useState(false);
-  const load = async () => { const r = await fetch("/api/ext/biz/profile/setup/status", {cache:"no-store"}).then(x=>x.ok ? x.json() : null).catch(()=>null); setStatus(r ?? undefined); };
+  const [noSession, setNoSession] = useState(false);
+  const load = async () => {
+    const response = await fetch("/api/ext/biz/profile/setup/status", {cache:"no-store"}).catch(()=>null);
+    // 403: no profile session (never connected, or it expired): offer the Connect action.
+    setNoSession(response?.status === 403);
+    setStatus(response?.ok ? await response.json().catch(()=>undefined) : undefined);
+  };
   useEffect(()=>{ void load(); }, []);
   const fail = (code?:string) => setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")})});
   const run = async (op:string, body?:object, done?:(r:any)=>void) => {
@@ -39,7 +46,8 @@ export function Setup({access}:{access:BizAccess}) {
   const list = (r:Removals) => [...r.extensions.map(e=>t("setup.removeExtension", {name:e.id})), ...r.mcp_servers.map(e=>t("setup.removeMcp", {name:e.id})),
     ...r.bots.map(e=>t("setup.removeBot", {name:e.name})), ...r.teams.map(e=>t("setup.removeTeam", {name:e.department}))];
 
-  if (access.reauthorizeRequired) return <section className="card"><p className="banner banner-down" role="alert">{t("access.reauthorize")}</p></section>;
+  if (!access || noSession) return <ConnectBiz />;
+  if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   if (!status) return <section className="card"><p role="status" className="mute">{t("setup.loading")}</p></section>;
   return <section className="card biz-stack" aria-labelledby="biz-setup">
     <h2 id="biz-setup" className="biz-h2">{t("setup.title")}</h2>

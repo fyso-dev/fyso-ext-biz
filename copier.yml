@@ -33,10 +33,12 @@ biz_access_organization:
   type: str
   default: ""
   help: Organization slug for Biz-managed access by department (empty to leave it disabled)
+  # `copier update` renders the old version in a temporary directory without framework/panel/*.json.
+  # A real host always has extension-api.json, so a missing access API is refused only then.
   validator: >-
     {% if biz_access_organization and not (biz_access_organization | regex_search('^[a-z0-9][a-z0-9-]{0,62}$')) %}
     Enter a valid organization slug.
-    {% elif biz_access_organization and (_external_data.access_api.version | default(0)) < 1 %}
+    {% elif biz_access_organization and _external_data.framework_api.version is defined and (_external_data.access_api.version | default(0)) < 1 %}
     Update the framework before enabling Biz-managed access.
     {% endif %}
 biz_access_project:

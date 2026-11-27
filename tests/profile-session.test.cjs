@@ -123,7 +123,18 @@ test('renders a same-origin sign-in form in the browser language', async () => {
   assert.equal(response.status, 200);
   assert.match(response.body, /Sign in with Fyso Biz/);
   assert.match(response.body, /method="post" action="\/api\/ext\/biz\/profile\/login"/);
-  assert.match(response.headers['Content-Security-Policy'], /form-action 'self'/);
+  assert.match(response.headers['Content-Security-Policy'], /form-action 'self' https:\/\/biz\.test;/);
+  assert.doesNotMatch(response.headers['Content-Security-Policy'], /\*/);
+});
+
+test('the sign-in CSP form-action covers the origin the login redirects to', async () => {
+  const url = 'https://biz.test/oauth/authorize?state=s&code_challenge=c';
+  const profiles = profileSessions({env, access: {}, auth: {async beginProfile() { return {state: 's', url}; }}});
+  const page = await invoke(profiles, request('/profile/sign-in', 'ana'));
+  const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
+  assert.equal(login.status, 303);
+  const sources = page.headers['Content-Security-Policy'].match(/form-action ([^;]+)/)[1].split(' ');
+  assert.ok(sources.includes(new URL(login.headers.Location).origin));
 });
 
 test('the access report flags an old grant that must reconnect, so the panel does not show it as having no departments', async () => {
@@ -145,4 +156,24 @@ test('the access report flags an old grant that must reconnect, so the panel doe
   const session = connected.headers['Set-Cookie'][1].split(';')[0];
   const report = await invoke(profiles, request('/profile/access', 'ana', {cookie: session}));
   assert.deepEqual(JSON.parse(report.body), {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true});
+});
+
+test('the panel can tell managed access is configured and that no profile session exists yet', async () => {
+  const profiles = profileSessions({env, auth: {}, access: {}});
+  const status = await invoke(profiles, request('/profile/status', 'ana'));
+  assert.equal(status.status, 200);
+  assert.deepEqual(JSON.parse(status.body), {connected: false});
+  // Setup needs a session: without one the panel shows the Connect action instead.
+  assert.equal((await invoke(profiles, request('/profile/setup/status', 'ana'))).status, 403);
+  // Not configured: the status route is 404, so the panel shows no Setup tab.
+  const plain = profileSessions({env: {...env, FYSO_BIZ_ACCESS_ORGANIZATION: ''}, auth: {}, access: {}});
+  assert.equal((await invoke(plain, request('/profile/status', 'ana'))).status, 404);
+});
+
+test('the panel shows Setup with a Connect action when managed access has no profile session', () => {
+  const fs = require('node:fs');
+  const read = file => fs.readFileSync(`${__dirname}/../panel-src/screens/${file}`, 'utf8');
+  assert.match(read('Biz.tsx'), /showSetup = managed\?\.managed === true/);
+  assert.match(read('Access.tsx'), /action="\/api\/ext\/biz\/profile\/login"/);
+  assert.match(read('Setup.tsx'), /response\?\.status === 403/);
 });
