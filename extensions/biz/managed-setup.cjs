@@ -272,7 +272,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       lastCapabilities: report.capabilities.length,
       delivered: {extensions: union(delivered.extensions, plan?.extensions?.added), mcp_servers: union(delivered.mcp_servers, plan?.mcp_servers?.added),
         bots: union(delivered.bots, plan?.bots?.added), secrets: union(delivered.secrets, secrets)}});
-    return {version: report.setup?.version ?? null, installed: installedNow, removed: removed.done, failed: removed.failed, teams, replaced: plan ? plan.files.replaced.filter(f => f.local_edits?.length).length : 0};
+    return {version: report.setup?.version ?? null, installed: installedNow, removed: removed.done, failed: removed.failed, teams, replaced: plan && installedNow ? plan.files.replaced.filter(f => f.local_edits?.length).length : 0};
   }
 
   /** Managed teams with the agent grant (Biz MCP) and the profile token as the access guard. */

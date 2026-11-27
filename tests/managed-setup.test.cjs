@@ -302,3 +302,17 @@ test('sync: an admin whose own key was pending registers it before republishing'
   assert.equal((await h.s.sync()).status, 'published');
   assert.deepEqual(h.state.registered, [KEY]);
 });
+
+test('sync: a policy-only change replaces no file, so it reports no replaced files', async () => {
+  const h = harness({plan: PLAN()});
+  const first = await h.s.apply({digest: (await h.s.preview()).digest});
+  assert.equal(first.replaced, 1, 'an install replaces the locally edited file');
+  h.state.current = report({etag: 'e2'});
+  h.s = setup({env: h.env, root: h.root, access: h.access, store: h.store, now: () => 1000, deliverTeams: async () => ({managed: true, teams: []}),
+    run: (cmd, args) => (cmd === 'mise' && args.includes('dist:plan') ? JSON.stringify({...PLAN(), up_to_date: true}) : cmd === 'node' && args[0].endsWith('marketplace.cjs') ? (() => { throw Error('x'); })() : '')});
+  const result = await h.s.sync();
+  assert.equal(result.status, 'applied');
+  assert.equal(result.installed, false);
+  assert.equal(result.replaced, 0);
+  assert.ok(!readState(h.env).notices.at(-1).text.includes('replaced'));
+});
