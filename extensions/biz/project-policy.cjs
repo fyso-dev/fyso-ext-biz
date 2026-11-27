@@ -151,7 +151,8 @@ function projectPolicy({env = process.env, profiles, access = projectAccess({env
       const report = await reportOf(access, session.accessToken);
       // A frozen project (the person lost access) is read-only, as the `cuidado` preset: Biz says so
       // (`frozen`) or the last sync recorded it, so it holds while Biz cannot be reached.
-      if ((report.frozen === true || isFrozen(env)) && !entryOnly && !read.has(method)) return reply(403);
+      // Biz sends `capabilities: []` when frozen, so reads are allowed here without them.
+      if (report.frozen === true || isFrozen(env)) return reply(read.has(method) ? 204 : 403);
       const granted = new Set(report.capabilities);
       const required = report.policy && !entryOnly ? frameworkRequirement(method, path) : null;
       return reply(granted.has('app:panel') && (entryOnly || granted.has(permission)) && (!required || granted.has(required)) ? 204 : 403);

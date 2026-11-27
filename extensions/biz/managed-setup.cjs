@@ -249,17 +249,24 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return {done, failed};
   }
 
+  /** Names of delivered secrets this key could not decrypt, as recorded by dist.cjs. */
+  function pendingSecretNames() {
+    try { return JSON.parse(fs.readFileSync(path.join(root, '.data/dist/secrets-pending.json'), 'utf8')).names || []; } catch { return []; }
+  }
+
   /** Install or update the distribution, then the policy removals and the managed teams. */
   async function reconcile(report, bearer, {planned, selfPublished = false} = {}) {
     snapshot();
     const plan = planned === undefined ? planFor(report) : planned;
     let installedNow = false;
     // After an unfreeze the delivered secrets are gone although the version is current: take the setup again.
-    const restore = readState(env).restoreSecrets === true;
+    const restore = readState(env).restoreSecrets === true || (readState(env).secretsPending || []).length > 0;
     if (plan && (plan.up_to_date !== true || restore) && !selfPublished) {
       try { mise('run', installed() ? 'dist:update' : 'dist:add', ...(installed() ? [] : ['biz'])); } catch (error) { throw Object.assign(Error('dist_failed'), {cause: error}); }
       installedNow = true;
     }
+    // The framework records secrets it could not decrypt (this key is not a recipient yet); the next etag retries.
+    const secretsPending = pendingSecretNames();
     const before = readState(env);
     const delivered = before.delivered || {};
     // What is flagged as Biz's teams is read first: delivering them unflags the departments that are gone.
@@ -270,11 +277,13 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     const removals = removalsOf({report, local, setup: setupNames(before, plan), catalog});
     const removed = removeAll(removals);
     const secrets = plan?.secrets?.names;
-    save({connected: true, etag: report.etag, version: report.setup?.version ?? null, appliedAt: new Date(now()).toISOString(), frozen: false, paused: null, restoreSecrets: false,
+    save({connected: true, etag: report.etag, version: report.setup?.version ?? null, appliedAt: new Date(now()).toISOString(), frozen: false, paused: null, restoreSecrets: false, secretsPending,
       lastCapabilities: report.capabilities.length,
       delivered: {extensions: union(delivered.extensions, plan?.extensions?.added), mcp_servers: union(delivered.mcp_servers, plan?.mcp_servers?.added),
         bots: union(delivered.bots, plan?.bots?.added), secrets: union(delivered.secrets, secrets)}});
-    return {version: report.setup?.version ?? null, installed: installedNow, removed: removed.done, failed: removed.failed, teams, replaced: plan && installedNow ? plan.files.replaced.filter(f => f.local_edits?.length).length : 0};
+    return {version: report.setup?.version ?? null, installed: installedNow, removed: removed.done, failed: removed.failed, teams, replaced: plan && installedNow ? plan.files.replaced.filter(f => f.local_edits?.length).length : 0,
+      // The framework keeps a patch of uncommitted edits only.
+      patched: plan && installedNow ? plan.files.replaced.filter(f => f.local_edits?.includes('uncommitted')).length : 0, secretsPending};
   }
 
   /** Managed teams with the agent grant (Biz MCP) and the profile token as the access guard. */
@@ -425,7 +434,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     try {
       const applied = await reconcile(report, bearer, {selfPublished: Boolean(report.setup) && latest.selfPublished === report.setup.version});
       const removedCount = Object.values(applied.removed).reduce((n, items) => n + items.length, 0);
-      notify('applied', `Setup ${applied.version || '(none)'} applied${removedCount ? `; removed ${removedCount} item(s) not allowed by policy` : ''}${applied.replaced ? `; ${applied.replaced} locally edited file(s) replaced (a patch is kept in .data/dist)` : ''}`);
+      notify('applied', `Setup ${applied.version || '(none)'} applied${removedCount ? `; removed ${removedCount} item(s) not allowed by policy` : ''}${applied.replaced ? `; ${applied.replaced} locally edited file(s) replaced${applied.patched ? ' (a patch is kept in .data/dist)' : ''}` : ''}${applied.secretsPending?.length ? `; secrets pending until the publisher adds your key: ${applied.secretsPending.join(', ')}` : ''}`);
       return {...result, status: 'applied', ...applied};
     } catch (error) {
       notify('failed', `Sync failed (${error.message}); the next run tries again`);
@@ -437,7 +446,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function status() {
     const state = readState(env), grant = store.profileStatus();
     return {connected: Boolean(state.connected) && grant.connected, grant: grant.connected, frozen: state.frozen === true, paused: state.paused || null,
-      version: state.version ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length};
+      version: state.version ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
   // One change at a time: the sync workflow and the panel must not interleave.

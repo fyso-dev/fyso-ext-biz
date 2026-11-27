@@ -4,7 +4,7 @@ import type { BizAccess } from "../api/biz";
 
 type Removals = {extensions:{id:string}[]; mcp_servers:{id:string}[]; bots:{name:string}[]; teams:{department:string}[]};
 type Preview = {setup:{version:string}|null; upToDate:boolean; removals:Removals; replaced:{path:string}[]; removalCount:number; digest:string; error?:string};
-type SetupStatus = {connected:boolean; frozen:boolean; noAccess?:boolean; paused:{reason:string}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
+type SetupStatus = {connected:boolean; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
 
 const post = async (op:string, body?:object) => {
   const response = await fetch(`/api/ext/biz/profile/setup/${op}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body ?? {})});
@@ -42,6 +42,7 @@ export function Setup({access}:{access:BizAccess}) {
     <p className="mute">{t("setup.intro")}</p>
     {status.noAccess && <p className="banner banner-warn" role="status">{t("setup.noAccess")}</p>}
     {status.frozen && <p className="banner banner-down" role="alert">{t("setup.frozen")}</p>}
+    {(status.secretsPending?.length ?? 0) > 0 && <p className="banner banner-warn" role="status">{t("setup.secretsPending", {names:status.secretsPending!.join(", ")})}</p>}
     {status.paused && <p className="banner banner-warn" role="status">{t("setup.paused", {reason:status.paused.reason})}</p>}
     {message && <p role={message.ok ? "status" : "alert"} className={message.ok ? "biz-success" : "biz-error"}>{message.text}</p>}
     {status.connected

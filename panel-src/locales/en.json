@@ -299,6 +299,7 @@
     "loading": "Loading…",
     "noAccess": "You do not have access to the organization's setup yet. Ask an administrator to add you to a department in Fyso Biz.",
     "frozen": "Your access was revoked: this project is read-only and the secrets delivered by the setup were removed.",
+    "secretsPending": "The setup's secrets are not encrypted for this installation's key yet, so they were not installed: {{names}}. They arrive automatically once the administrator publishes again.",
     "paused": "Sync is paused ({{reason}}); nothing was changed.",
     "connected": "Connected. Setup {{version}} applied.",
     "offered": "The organization offers setup {{version}}.",

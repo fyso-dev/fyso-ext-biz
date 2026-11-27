@@ -221,6 +221,62 @@ test('frozen: the panel policy and the MCP policy are read-only', async () => {
   };
   assert.equal(await call('listar_equipos'), 204);
   assert.equal(await call('crear_nota'), 403);
+
+  // Biz sends `capabilities: []` when frozen: still read-only, not deny-all.
+  const empty = {report: async () => report({capabilities: [], frozen: true})};
+  const panel2 = projectPolicy({env, profiles, access: empty}), mcp2 = mcpPolicy({env, profiles, access: empty});
+  const ask2 = (method, p) => panel2({headers: {'remote-user': 'a', 'x-fyso-policy-host': 'panel.p.test', 'x-fyso-policy-path': p, 'x-forwarded-method': method}}, {writeHead: s => ({end: () => s})});
+  assert.equal(await ask2('GET', '/api/omb/bots'), 204);
+  assert.equal(await ask2('POST', '/api/dagu/dags/x/start'), 403);
+  const call2 = tool => {
+    const body = JSON.stringify({principal: {kind: 'delegated', extension: 'biz', digest: 'd'}, method: 'tools/call', tool});
+    return mcp2({async *[Symbol.asyncIterator]() { yield Buffer.from(body); }}, {writeHead: s => ({end: () => s})});
+  };
+  assert.equal(await call2('listar_equipos'), 204);
+  assert.equal(await call2('crear_nota'), 403);
+});
+
+test('the patch notice appears only when there were uncommitted edits', async () => {
+  const notice = async edits => {
+    const h = harness({plan: {...PLAN(), files: {added: [], replaced: [{path: 'a', local_edits: edits}], removed: []}}});
+    h.state.current = report({capabilities: ['app:panel', 'framework:extensions:any', 'framework:mcp_servers:any', 'framework:bots:create']});
+    await h.s.apply({digest: (await h.s.preview()).digest});
+    h.state.current = report({etag: 'e2', capabilities: ['app:panel', 'framework:extensions:any', 'framework:mcp_servers:any', 'framework:bots:create']});
+    await h.s.sync();
+    return h.s.status().notices.map(n => n.text).join('\n');
+  };
+  assert.match(await notice(['uncommitted']), /replaced \(a patch is kept in \.data\/dist\)/);
+  assert.doesNotMatch(await notice(['committed']), /patch/);
+});
+
+test('secrets pending: shown in the status and retried when the etag changes', async () => {
+  const plan = {...PLAN(), secrets: {names: ['API_KEY'], decryptable: false, pending: true}};
+  const h = harness({plan});
+  const pending = path.join(h.root, '.data/dist/secrets-pending.json');
+  const updates = () => h.calls.filter(c => /dist:(add|update)/.test(c)).length;
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  assert.deepEqual(h.s.status().secretsPending, []);
+  // The framework records what it could not decrypt while installing.
+  fs.mkdirSync(path.dirname(pending), {recursive: true});
+  fs.writeFileSync(pending, JSON.stringify({names: ['API_KEY']}));
+  plan.up_to_date = true;
+  h.state.current = report({etag: 'e2'});
+  await h.s.sync();
+  assert.deepEqual(h.s.status().secretsPending, ['API_KEY']);
+  // Same version, new etag, still pending: dist:update runs again.
+  const before = updates();
+  h.state.current = report({etag: 'e3'});
+  await h.s.sync();
+  assert.equal(updates(), before + 1);
+  // The framework decrypted them this time and removed the record: no more retries.
+  fs.rmSync(pending);
+  h.state.current = report({etag: 'e4'});
+  await h.s.sync();
+  assert.deepEqual(h.s.status().secretsPending, []);
+  assert.equal(updates(), before + 2);
+  h.state.current = report({etag: 'e5'});
+  await h.s.sync();
+  assert.equal(updates(), before + 2, 'cleared: nothing to retry');
 });
 
 test('the access client sends the organization on every endpoint and reads setup, etag, pending and frozen', async () => {
