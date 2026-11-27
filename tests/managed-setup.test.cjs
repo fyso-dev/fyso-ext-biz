@@ -248,3 +248,25 @@ test('the extension sets the distribution transport environment', () => {
   for (const name of ['FYSO_DIST_BIZ_URL', 'FYSO_DIST_BIZ_ORGANIZATION', 'FYSO_DIST_BIZ_TOKEN_CMD']) assert.ok(toml.includes(name), name);
   assert.match(fs.readFileSync(path.join(__dirname, "../project/workflows/{{ 'ext-biz-sync.yaml' if biz_access_organization else '' }}.slotjinja"), 'utf8'), /\*\/15 \* \* \* \*/);
 });
+
+test('something local that is identical to the setup is the setup\'s: the policy never removes it', async () => {
+  const withContents = {...PLAN(), contents: {extensions: ['foo', 'sext'], mcp_servers: ['mine', 'fromsetup'], bots: ['Mine', 'Shared']}};
+  const h = harness({plan: withContents});
+  const preview = await h.s.preview();
+  assert.deepEqual(preview.removals.extensions.map(e => e.id), ['bar']);
+  assert.deepEqual([preview.removals.mcp_servers, preview.removals.bots], [[], []]);
+  await h.s.apply({digest: preview.digest});
+  assert.equal(fs.existsSync(path.join(h.root, '.copier-answers.ext-foo.yml')), true);
+  assert.equal(fs.existsSync(path.join(h.root, '.copier-answers.ext-bar.yml')), false);
+  // Without `contents` (older framework) only what was delivered counts: foo is local.
+  assert.deepEqual((await harness({plan: PLAN()}).s.preview()).removals.extensions.map(e => e.id).sort(), ['bar', 'foo']);
+});
+
+test('the panel status payload shows frozen and "no access yet"', async () => {
+  const h = harness({plan: PLAN()});
+  const {writeState} = require('../extensions/biz/managed-setup.cjs');
+  writeState(h.env, {connected: true, version: 'v2', frozen: true, pendingSecrets: ['X']});
+  assert.deepEqual([h.s.status().frozen, h.s.status().noAccess, h.s.status().pendingSecrets], [true, false, 1]);
+  writeState(h.env, {connected: true, noAccess: true});
+  assert.deepEqual([h.s.status().frozen, h.s.status().noAccess, h.s.status().version], [false, true, null]);
+});

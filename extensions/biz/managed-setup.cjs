@@ -189,9 +189,12 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
 
   /** The names the distribution brought (earlier deliveries and this plan) the policy keeps. */
   function setupNames(state, plan) {
-    const delivered = state.delivered || {};
-    return {extensions: union(delivered.extensions, plan?.extensions?.added), mcp_servers: union(delivered.mcp_servers, plan?.mcp_servers?.added),
-      bots: union(delivered.bots, plan?.bots?.added)};
+    const delivered = state.delivered || {}, contents = plan?.contents;
+    // `contents` is the full set of the incoming version, so something local that is identical to the
+    // setup's is still the setup's. Without it (an older framework) only what was delivered is known.
+    const from = key => contents && Array.isArray(contents[key]) ? union(contents[key], plan[key]?.added)
+      : union(delivered[key], plan?.[key]?.added);
+    return {extensions: from('extensions'), mcp_servers: from('mcp_servers'), bots: from('bots')};
   }
 
   async function preview({register = true} = {}) {
