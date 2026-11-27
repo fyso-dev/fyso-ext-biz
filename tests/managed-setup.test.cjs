@@ -316,3 +316,19 @@ test('sync: a policy-only change replaces no file, so it reports no replaced fil
   assert.equal(result.replaced, 0);
   assert.ok(!readState(h.env).notices.at(-1).text.includes('replaced'));
 });
+
+test('unfreeze: the setup is taken again although the version is current (the delivered secrets were removed)', async () => {
+  const h = harness({plan: {...PLAN(), up_to_date: true}});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({frozen: true, capabilities: [], etag: 'f'});
+  assert.equal((await h.s.sync()).status, 'frozen');
+  h.state.current = report({etag: 'e9'});
+  h.calls.length = 0;
+  assert.equal((await h.s.sync()).status, 'applied');
+  assert.ok(h.calls.some(c => /dist:(add|update)/.test(c)), 'the secrets come back with the setup');
+  assert.equal(readState(h.env).restoreSecrets, false);
+  h.state.current = report({etag: 'e10'});
+  h.calls.length = 0;
+  await h.s.sync();
+  assert.ok(!h.calls.some(c => /dist:(add|update)/.test(c)), 'a later change of an unchanged version installs nothing');
+});

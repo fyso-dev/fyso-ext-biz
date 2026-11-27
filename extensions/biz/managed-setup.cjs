@@ -254,7 +254,9 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     snapshot();
     const plan = planned === undefined ? planFor(report) : planned;
     let installedNow = false;
-    if (plan && plan.up_to_date !== true && !selfPublished) {
+    // After an unfreeze the delivered secrets are gone although the version is current: take the setup again.
+    const restore = readState(env).restoreSecrets === true;
+    if (plan && (plan.up_to_date !== true || restore) && !selfPublished) {
       try { mise('run', installed() ? 'dist:update' : 'dist:add', ...(installed() ? [] : ['biz'])); } catch (error) { throw Object.assign(Error('dist_failed'), {cause: error}); }
       installedNow = true;
     }
@@ -268,7 +270,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     const removals = removalsOf({report, local, setup: setupNames(before, plan), catalog});
     const removed = removeAll(removals);
     const secrets = plan?.secrets?.names;
-    save({connected: true, etag: report.etag, version: report.setup?.version ?? null, appliedAt: new Date(now()).toISOString(), frozen: false, paused: null,
+    save({connected: true, etag: report.etag, version: report.setup?.version ?? null, appliedAt: new Date(now()).toISOString(), frozen: false, paused: null, restoreSecrets: false,
       lastCapabilities: report.capabilities.length,
       delivered: {extensions: union(delivered.extensions, plan?.extensions?.added), mcp_servers: union(delivered.mcp_servers, plan?.mcp_servers?.added),
         bots: union(delivered.bots, plan?.bots?.added), secrets: union(delivered.secrets, secrets)}});
@@ -391,8 +393,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     if (suspicious(report, state)) return pause('unexpected_empty_response');
     if (state.frozen) {
       // Access is back: register the key again and take the setup as a first delivery.
-      save({frozen: false, etag: null, pendingSecrets: [], frozenAt: null});
-      notify('unfrozen', 'Access restored: the setup is applied again. Ask an admin to publish so that the secrets are re-encrypted for you.');
+      save({frozen: false, etag: null, pendingSecrets: [], frozenAt: null, restoreSecrets: true});
+      notify('unfrozen', 'Access restored: the setup is applied again, secrets included when the published version was encrypted for your key (otherwise they arrive with the next version).');
       if (report.setup) await access.registerRecipient(bearer, ageKey()).catch(() => {});
     }
     const result = {status: 'noop'};
