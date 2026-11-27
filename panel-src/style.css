@@ -1,23 +1,66 @@
-/* Biz builds on the panel's shared components (card, connector-*, seg, pill, empty)
-   and only adds layout. Colors and radii come from the panel's tokens. */
+/* Biz builds on the panel's shared classes and tokens (panel.css, loaded by the page): card, list, row,
+   banner, pill, btn, seg, empty, stat, copyline and the --fy-* variables. Light and dark come from the
+   host's theme class, so nothing here sets a literal color. This file only adds layout and the few
+   pieces the host has no class for (notice icon, change summary rows, event list).
+
+   Type scale, as in the panel:
+     page title   .page-head h1   display font 20 px
+     card title   .biz-title      display font 17 px (same as dialog and empty-state titles)
+     item title   h3              15 px bold
+     list heading .biz-h2         13 px bold (the panel's .section-title)
+     body 14 px, hint and note 12 px, labels 13 px bold.
+   Spacing: 20 px between blocks of a page, 20 px padding in a card, 14 px between its children. */
 .biz-page { display: flex; flex-direction: column; gap: 20px; }
-.biz-stack { display: flex; flex-direction: column; gap: 14px; }
+.biz-panel { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.biz-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .biz-account { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.biz-tabs { align-self: flex-start; }
-.biz-tabs button { padding: 0 16px; }
-.biz-h2 { font-size: 15px; font-weight: 700; padding: 0 4px; }
+.biz-tabs { align-self: flex-start; max-width: 100%; overflow-x: auto; }
+.biz-tabs button { padding: 0 16px; white-space: nowrap; }
+.seg button[aria-selected="true"] { background: var(--fy-surface); color: var(--fy-text); box-shadow: var(--fy-shadow-card); }
+.seg button:not([aria-selected="true"]):not([aria-pressed="true"]):hover { color: var(--fy-text); }
+.biz-h2 { margin: 0; font-size: 13px; line-height: 20px; font-weight: 700; padding: 0 4px; }
+.biz-page h3:not(.empty-title) { font-size: 15px; line-height: 20px; font-weight: 700; }
+.biz-title { font-family: var(--font-display); font-weight: 700; font-size: 17px; line-height: 22px; letter-spacing: -.015em; }
 .biz-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .biz-inline { flex-direction: row; align-items: center; gap: 8px; }
 
-.biz-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 40px 24px; max-width: 640px; margin: 0 auto; width: 100%; }
-.biz-hero h2 { font-size: 20px; font-weight: 700; }
-.biz-benefits { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 8px; text-align: left; }
-.biz-benefits li::before { content: "✓"; color: var(--fy-ok); font-weight: 700; margin-right: 10px; }
-.biz-cta { height: 40px; padding: 0 22px; font-size: 14px; }
-.biz-details summary { cursor: pointer; color: var(--fy-mute); font-size: 12px; }
-.biz-details pre { white-space: pre-wrap; font-size: 12px; margin-top: 8px; padding: 10px; border-radius: var(--fy-radius-md); background: var(--fy-surface-2); }
+/* Card sections: the panel's .card has no padding of its own, so a section adds the shared one. */
+.biz-section { display: flex; flex-direction: column; gap: 14px; padding: 20px; min-width: 0; }
+.biz-section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 12px; }
+.biz-section-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 240px; }
+.biz-section-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.biz-subsection { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--fy-line); }
 
-.biz-team-mark { background: var(--fy-accent-soft); color: var(--fy-accent-text); font-weight: 700; }
+/* Status lines: the panel's banner with a glyph. ok and info tones complete its warn and down ones. */
+.banner-ok { background: var(--fy-ok-soft); }
+.banner-info { background: var(--fy-surface-2); }
+.biz-notice { flex-wrap: nowrap; align-items: flex-start; font-size: 13px; padding: 10px 14px; }
+.biz-notice-icon { width: 20px; height: 20px; flex-shrink: 0; border-radius: var(--fy-radius-pill); display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1; }
+.banner-ok .biz-notice-icon { color: var(--fy-ok); }
+.banner-warn .biz-notice-icon { color: var(--fy-warn); }
+.banner-down .biz-notice-icon { color: var(--fy-down); }
+.banner-info .biz-notice-icon { color: var(--fy-mute); }
+.biz-notice-body { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding-top: 1px; }
+.biz-notice-body > p { flex: 1 1 100%; }
+.biz-success, .biz-error { font-size: 13px; font-weight: 700; }
+.biz-success { color: var(--fy-ok); }
+.biz-error { color: var(--fy-down); }
+
+/* Connect (hero) and empty states. */
+.biz-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 40px 24px; max-width: 640px; margin: 0 auto; width: 100%; }
+.biz-benefits { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 10px; text-align: left; counter-reset: biz-step; }
+.biz-benefits li { display: flex; align-items: flex-start; gap: 10px; }
+ul.biz-benefits li::before { content: "✓"; width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: var(--fy-radius-pill); display: inline-flex; align-items: center; justify-content: center;
+  background: var(--fy-ok-soft); color: var(--fy-ok); font-family: var(--font-mono); font-size: 12px; }
+ol.biz-benefits li { counter-increment: biz-step; }
+ol.biz-benefits li::before { content: counter(biz-step); width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; border-radius: var(--fy-radius-pill); display: inline-flex; align-items: center; justify-content: center;
+  background: var(--fy-accent-soft); color: var(--fy-on-accent-soft); font-size: 12px; font-weight: 700; }
+.biz-details summary { cursor: pointer; color: var(--fy-mute); font-size: 12px; border-radius: var(--fy-radius-sm); }
+.biz-details summary:hover { color: var(--fy-text); }
+.biz-details pre { white-space: pre-wrap; font-family: var(--font-mono); font-size: 12px; margin-top: 8px; padding: 10px; border-radius: var(--fy-radius-md); background: var(--fy-surface-2); text-align: left; overflow-wrap: anywhere; }
+
+.biz-team-mark { background: var(--fy-accent-soft); color: var(--fy-on-accent-soft); font-weight: 700; }
 .biz-team-open { border-color: var(--fy-accent); }
 .biz-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .biz-preview { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
@@ -29,8 +72,6 @@
 .biz-mail-main .copyline { max-width: 520px; }
 .biz-mail-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; min-height: 32px; }
 .biz-mail-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.biz-success { color: var(--fy-ok); font-weight: 700; }
-.biz-error { color: var(--fy-down); }
 
 .biz-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
 .biz-kpi { padding: 18px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -43,9 +84,61 @@
 
 .biz-partner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; }
 .biz-sync { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.biz-sync-row { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
+.biz-sync-row { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
 
 .biz-access-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.biz-access-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
+.biz-access-row { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
 .biz-access-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.biz-access-policy { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.biz-access-policy { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.biz-access-policy li { display: flex; gap: 10px; align-items: flex-start; }
+.biz-access-policy li::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; margin-top: 8px; border-radius: var(--fy-radius-pill); background: var(--fy-accent); }
+
+/* Work: lists as panel rows. */
+.biz-work-list { margin: 0; }
+.biz-work-list .row { font-size: 13px; }
+
+/* Publish and apply previews: totals, one summary row per kind, lists that open on demand. */
+.biz-preview-panel { display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: var(--fy-radius-box); background: var(--fy-surface-2); }
+.biz-preview-panel > .biz-stats { background: var(--fy-surface); }
+.biz-versions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 700; }
+.biz-stats { list-style: none; margin: 0; padding: 0; border: 1px solid var(--fy-line); border-radius: var(--fy-radius-lg); overflow: hidden; }
+.biz-stat + .biz-stat { border-top: 1px solid var(--fy-line); }
+.biz-stat-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 14px; min-height: 44px; }
+.biz-stat-label { flex: 1 1 160px; min-width: 0; font-weight: 700; font-size: 13px; overflow-wrap: anywhere; }
+.biz-stat-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.biz-stat-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz-stat details > summary { cursor: pointer; list-style: none; transition: background-color 160ms; }
+.biz-stat details > summary::-webkit-details-marker { display: none; }
+.biz-stat details > summary:hover { background: var(--fy-surface-2); }
+.biz-stat details > summary:focus-visible { outline: 2px solid var(--fy-focus); outline-offset: -2px; }
+.biz-chev { color: var(--fy-mute); font-size: 18px; line-height: 1; transition: transform 160ms; }
+.biz-stat details[open] > summary .biz-chev { transform: rotate(90deg); }
+.biz-stat-body { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 14px; }
+.biz-change-group { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.biz-files { list-style: none; margin: 0; padding: 0; align-self: stretch; display: flex; flex-direction: column; max-height: 220px; overflow: auto; border-radius: var(--fy-radius-md); }
+.biz-files li { padding: 4px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.biz-files li:nth-child(odd) { background: var(--fy-surface-2); }
+.biz-preview-panel .biz-files li:nth-child(odd) { background: var(--fy-skel); }
+.biz-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.biz-conflicts { border: 1px solid var(--fy-line-2); border-radius: var(--fy-radius-lg); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 0; }
+.biz-conflicts legend { padding: 0 6px; font-size: 13px; font-weight: 700; }
+.biz-conflict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.biz-conflict code { flex: 1 1 240px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.biz-conflict label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.biz-conflict input { accent-color: var(--fy-accent); }
+
+/* Recent notices: panel list rows with a tone dot, the text and its time. */
+.biz-events .row { align-items: flex-start; padding: 10px 14px; font-size: 13px; }
+.biz-event-dot { width: 8px; height: 8px; margin-top: 6px; flex-shrink: 0; border-radius: var(--fy-radius-pill); background: var(--fy-unk); }
+.biz-event-ok .biz-event-dot { background: var(--fy-ok); }
+.biz-event-warn .biz-event-dot { background: var(--fy-warn); }
+.biz-event-down .biz-event-dot { background: var(--fy-down); }
+.biz-event-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.biz-event-time { flex-shrink: 0; font-size: 12px; color: var(--fy-mute); white-space: nowrap; padding-top: 1px; }
+
+.biz-skel { height: 14px; width: 100%; }
+.biz-skel-short { width: 60%; }
+
+/* Form labels: the panel's .label scale; the control keeps the body weight. */
+.biz-page label.field { font-size: 13px; font-weight: 700; }
+.biz-page label.field > .input, .biz-page label.field > .select { font-size: 14px; font-weight: 400; }
