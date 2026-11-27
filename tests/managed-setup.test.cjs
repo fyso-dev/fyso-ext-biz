@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), http = require('node:http');
-const {setup, removalsOf, readState, isFrozen} = require('../extensions/biz/managed-setup.cjs');
+const {setup, removalsOf, readState, isFrozen, stderrTail} = require('../extensions/biz/managed-setup.cjs');
 const {projectAccess} = require('../extensions/biz/project-access.cjs');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
 const {mcpPolicy} = require('../extensions/biz/mcp-policy.cjs');
@@ -27,10 +27,10 @@ function project() {
   return {root, env: {FYSO_DATA: data, FYSO_BIZ_ACCESS_ORGANIZATION: 'acme', FYSO_BIZ_URL: 'https://biz.test'}};
 }
 
-function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, teams = {managed: true, teams: []}, tokenFails = false, sopsKeys = null} = {}) {
+function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, teams = {managed: true, teams: []}, tokenFails = false, sopsKeys = null, dry = DRY(), published = 'published v3 (234 files) to Biz'} = {}) {
   const p = project();
   const calls = [];
-  const state = {registered: [], grant: true, current: [].concat(reports || report())[0]};
+  const state = {registered: [], grant: true, tree: 'tree1', dry, published, current: [].concat(reports || report())[0]};
   const access = {
     report: async () => {
       if (state.current instanceof Error) throw state.current;
@@ -47,7 +47,14 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
   const exits = {};
   const run = (cmd, args) => {
     calls.push([cmd, ...args].join(' '));
-    for (const [needle, queue] of Object.entries(exits)) if (args.includes(needle) && queue.length) { const code = queue.shift(); if (code) throw Object.assign(Error(`exit ${code}`), {status: code}); }
+    for (const [needle, queue] of Object.entries(exits)) if (args.includes(needle) && queue.length) {
+      const next = queue.shift(), {status = next, stderr = '', stdout = ''} = typeof next === 'object' ? next : {};
+      if (status) throw Object.assign(Error(`Command failed: ${cmd} ${args.join(' ')}\n${stderr}`), {status, stderr, stdout});
+    }
+    if (cmd === 'git' && args[0] === 'rev-parse') return `${state.tree}\n`;
+    if (cmd === 'mise' && args.includes('dist:status')) return `Distribution: Biz (managed setup)\nVersion:      ${state.installed || 'v3'}\nLatest:       v3\n`;
+    if (cmd === 'mise' && args.includes('--dry-run')) return typeof state.dry === 'string' ? state.dry : `log\n${JSON.stringify(state.dry)}`;
+    if (cmd === 'mise' && args.includes('dist:publish')) return `log\n${state.published}\n`;
     if (cmd === 'sops' && args[0] === 'decrypt' && sopsKeys) return JSON.stringify(Object.fromEntries(sopsKeys.map(k => [k, 'v'])));
     if (cmd === 'mise' && args.includes('dist:key')) return `${KEY}\n`;
     if (cmd === 'mise' && args.includes('dist:plan')) return `log line\n${JSON.stringify(plan)}`;
@@ -56,9 +63,13 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
     if (cmd === 'node' && args[0].endsWith('bot-architect.cjs')) return JSON.stringify({bots: [{id: 'b1', name: 'Mine'}], planId: 'p1'});
     return '';
   };
-  const s = setup({env: p.env, root: p.root, access, store, run, deliverTeams: async () => teams, now: () => 1000});
+  const s = setup({env: p.env, root: p.root, access, store, run, deliverTeams: async () => teams, now: () => 1000, sleep: () => {}});
   return {...p, s, calls, state, access, store, exits};
 }
+
+const DRY = (over = {}) => ({transport: 'biz', base: 'v3', version: 'v4', changed: true, files: {added: ['a.md'], modified: ['b.md'], removed: []}, files_count: 234,
+  bots: {added: [], modified: ['Chief'], removed: []}, extensions: {added: [], removed: []}, mcp_servers: {added: [], removed: []}, secrets: ['API_KEY'],
+  recipients: {count: 2, changed: false}, framework: '0.1.15', checks: {gitleaks: 'ok', machine_paths: 'ok'}, ...over});
 
 const PLAN = () => ({mode: 'update', current: 'v1', version: 'v2', up_to_date: false, files: {added: [], replaced: [{path: 'a', local_edits: ['committed']}, {path: 'b', local_edits: []}], removed: []},
   secrets: {names: ['API_KEY'], decryptable: true}, extensions: {added: ['sext']}, bots: {added: ['Shared']}, mcp_servers: {added: ['fromsetup']}});
@@ -344,13 +355,18 @@ test('snapshot: a project that never started commits only; a started one takes t
   assert.ok(started.calls.includes('mise run snapshot'));
 });
 
+// A preview and its answer, as the panel posts them back.
+const previewed = async h => { const p = await h.s.publishPreview(); return {version: p.version, digest: p.digest}; };
+
 test('publish: the admin registers its own key before the first publish (Biz has no setup and no recipients yet)', async () => {
   const h = harness({reports: report({admin: true, setup: undefined, etag: 'e0'}), plan: PLAN()});
-  await h.s.publish();
+  const shown = await previewed(h);
+  h.state.registered.length = 0; h.calls.length = 0;
+  await h.s.publish(shown);
   assert.deepEqual(h.state.registered, [KEY]);
-  const order = h.calls.map(c => c.match(/dist:key|dist:publish/)?.[0]).filter(Boolean);
-  assert.deepEqual(order, ['dist:key', 'dist:publish'], 'the key is known to Biz before dist:publish asks for recipients');
-  await assert.rejects(harness({plan: PLAN()}).s.publish(), {message: 'admin_required'});
+  const order = h.calls.map(c => c.match(/dist:key|dist:publish( v4)?$/)?.[0]).filter(Boolean);
+  assert.deepEqual(order, ['dist:key', 'dist:publish v4'], 'the key is known to Biz before dist:publish asks for recipients');
+  await assert.rejects(harness({plan: PLAN()}).s.publish({version: 'v4', digest: 'x'}), {message: 'admin_required'});
 });
 
 test('sync: an admin whose own key was pending registers it before republishing', async () => {
@@ -405,7 +421,7 @@ test('freeze: a secret that is already gone is not pending (second freeze after 
 test('panel publish: stale_base asks for "update and merge", which merges and publishes again; a conflict stops', async () => {
   const h = harness({reports: report({admin: true}), plan: PLAN()});
   h.exits['dist:publish'] = [3];
-  await assert.rejects(h.s.publish(), {message: 'stale_base'});
+  await assert.rejects(h.s.publishPreview(), {message: 'stale_base'});
   assert.ok(!h.calls.some(c => c.includes('dist:update')));
   // Update and merge: snapshot, merge, publish again.
   h.calls.length = 0;
@@ -448,7 +464,7 @@ test('sync: admin auto-republish merges once on stale_base and retries; a confli
 test('publisher that never installed the setup (exit 5) is told to install it first; sync only notices', async () => {
   const h = harness({reports: report({admin: true}), plan: PLAN(), recipients: {recipients: [], etag: 'r2'}});
   h.exits['dist:publish'] = [5];
-  await assert.rejects(h.s.publish(), {message: 'setup_not_installed'});
+  await assert.rejects(h.s.publishPreview(), {message: 'setup_not_installed'});
   await h.s.apply({digest: (await h.s.preview()).digest});
   h.state.current = report({admin: true, recipientsPending: 1});
   h.exits['dist:publish'] = [5];
@@ -486,4 +502,154 @@ test('sync: a newer setup that conflicts with a publisher\'s edits pauses publis
   assert.deepEqual(readState(h.env).publishPaused.files, ['project/wiki/w.md']);
   assert.equal(readState(h.env).notices.at(-1).kind, 'merge_conflict');
   assert.ok(!readState(h.env).notices.some(n => n.kind === 'failed'));
+});
+
+test('publish records the published version (not Biz\'s cached report), and adds a notice', async () => {
+  // Biz's report is still the cached v2 right after the publish.
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  assert.equal(h.s.status().version, 'v2');
+  const result = await h.s.publish(await previewed(h));
+  assert.equal(result.version, 'v3');
+  const state = readState(h.env);
+  assert.deepEqual([state.version, state.selfPublished], ['v3', 'v3']);
+  assert.deepEqual(state.notices.at(-1), {at: new Date(1000).toISOString(), kind: 'published', text: 'Published setup v3 (234 files)'});
+  assert.deepEqual([h.s.status().version, h.s.status().selfPublished], ['v3', 'v3']);
+});
+
+test('publish: when the output has no version, dist:status says which one is installed; "nothing published" adds no notice', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN(), published: 'no changes since the last version; nothing published'});
+  h.state.installed = 'v7';
+  await h.s.publish(await previewed(h));
+  assert.equal(readState(h.env).selfPublished, 'v7');
+  assert.ok(!(readState(h.env).notices || []).some(n => n.kind === 'published'));
+});
+
+test('sync: the automatic republish records the new version and a notice too', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN(), recipients: {recipients: [], etag: 'r2'}});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({admin: true, recipientsPending: 1});
+  await h.s.sync();
+  const state = readState(h.env);
+  assert.deepEqual([state.version, state.selfPublished], ['v3', 'v3']);
+  assert.match(state.notices.at(-1).text, /^Published setup v3 \(234 files\)/);
+  assert.equal(state.notices.at(-1).kind, 'published');
+});
+
+test('a failed publish says why: the notice carries the stderr tail, never a secret', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  const shown = await previewed(h);
+  const noise = 'x'.repeat(900);
+  h.exits['dist:publish'] = [0, {status: 1, stderr: `${noise}\nerror: nothing to publish AGE-SECRET-KEY-1ABCDEF token=abc123\n`}];
+  await assert.rejects(h.s.publish(shown), error => error.message === 'publish_failed' && error.detail.length < 500);
+  const notice = readState(h.env).notices.at(-1);
+  assert.equal(notice.kind, 'publish_failed');
+  assert.match(notice.text, /^Could not publish: Command failed: mise run dist:publish v4 \(/);
+  assert.match(notice.text, /error: nothing to publish/);
+  assert.doesNotMatch(notice.text, /AGE-SECRET-KEY|abc123/);
+  assert.ok(notice.text.length < 500);
+  assert.ok(stderrTail({stderr: 'a'.repeat(1000)}).length <= 303);
+});
+
+test('dist:key is tried twice: a transient failure still publishes, a persistent one reports stderr', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  const shown = await previewed(h);
+  let slept = 0;
+  const flaky = setup({env: h.env, root: h.root, access: h.access, store: h.store, now: () => 1000, deliverTeams: async () => ({managed: true, teams: []}), sleep: () => { slept++; },
+    run: (cmd, args) => {
+      h.calls.push([cmd, ...args].join(' '));
+      if (args.includes('dist:key')) { if (!h.flaky) { h.flaky = 1; throw Object.assign(Error('Command failed: mise run -q dist:key'), {status: 1, stderr: 'database is locked'}); } return `${KEY}\n`; }
+      if (args.includes('--dry-run')) return JSON.stringify(DRY());
+      if (args.includes('dist:publish')) return 'published v4 (10 files) to Biz';
+      if (args.includes('dist:status')) return 'Version: v4';
+      return '';
+    }});
+  h.calls.length = 0;
+  const preview = await flaky.publishPreview();
+  assert.equal(preview.version, 'v4');
+  assert.equal(slept, 1);
+  assert.equal(h.calls.filter(c => c.includes('dist:key')).length, 2);
+  // Persistent failure: both attempts fail, the notice names the command and the stderr.
+  h.exits['dist:key'] = [{status: 1, stderr: 'database is locked'}, {status: 1, stderr: 'database is locked'}];
+  await assert.rejects(h.s.publishPreview(), {message: 'key_unavailable'});
+  assert.equal(h.calls.filter(c => c.includes('dist:key')).length, 4);
+  assert.match(readState(h.env).notices.at(-1).text, /^Could not publish: Command failed: mise run -q dist:key \(database is locked\)/);
+});
+
+test('publish-preview: returns the validated dry run with a digest; nothing is published', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  const preview = await h.s.publishPreview();
+  assert.equal(preview.version, 'v4');
+  assert.equal(preview.base, 'v3');
+  assert.deepEqual(preview.files.modified, ['b.md']);
+  assert.deepEqual(preview.secrets, ['API_KEY']);
+  assert.match(preview.digest, /^[0-9a-f]{64}$/);
+  assert.ok(h.calls.some(c => c.endsWith('dist:publish --dry-run --json')));
+  assert.ok(!h.calls.some(c => /dist:publish( v\d+)?$/.test(c)));
+  assert.deepEqual(h.state.registered, [KEY]);
+  // Only admins preview a publication.
+  await assert.rejects(harness({plan: PLAN()}).s.publishPreview(), {message: 'admin_required'});
+  // An answer that is not the contract fails closed.
+  const bad = harness({reports: report({admin: true}), plan: PLAN(), dry: {version: 'v4', changed: true}});
+  await assert.rejects(bad.s.publishPreview(), {message: 'unexpected_response'});
+});
+
+test('publish-preview: an older framework (no --dry-run) answers framework_update_required; exit 3 is stale_base', async () => {
+  // It takes the flag as a version and refuses it.
+  const old = harness({reports: report({admin: true}), plan: PLAN()});
+  old.exits['--dry-run'] = [{status: 1, stderr: 'error: invalid version --dry-run (use 1, 2, … or 1.2.0)'}];
+  await assert.rejects(old.s.publishPreview(), {message: 'framework_update_required'});
+  // Or it ignores it and prints plain text.
+  const quiet = harness({reports: report({admin: true}), plan: PLAN(), dry: 'no changes since the last version; nothing published'});
+  await assert.rejects(quiet.s.publishPreview(), {message: 'framework_update_required'});
+  const stale = harness({reports: report({admin: true}), plan: PLAN()});
+  stale.exits['--dry-run'] = [3];
+  await assert.rejects(stale.s.publishPreview(), {message: 'stale_base'});
+});
+
+test('publish needs the preview, and only what was shown is published (preview_stale otherwise)', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  await assert.rejects(h.s.publish(), {message: 'preview_required'});
+  await assert.rejects(h.s.publish({version: 'v4'}), {message: 'preview_required'});
+  const shown = await previewed(h);
+  const published = () => h.calls.some(c => /dist:publish v\d+$/.test(c));
+  // The committed project changed since the preview.
+  h.state.tree = 'tree2';
+  await assert.rejects(h.s.publish(shown), {message: 'preview_stale'});
+  // The set of changes changed.
+  const again = await previewed(h);
+  h.state.dry = DRY({files: {added: ['a.md', 'c.md'], modified: [], removed: []}});
+  await assert.rejects(h.s.publish(again), {message: 'preview_stale'});
+  // A different version, or nothing left to publish.
+  h.state.dry = DRY();
+  await assert.rejects(h.s.publish({...await previewed(h), version: 'v9'}), {message: 'preview_stale'});
+  h.state.dry = DRY({changed: false});
+  await assert.rejects(h.s.publish(await previewed(h)), {message: 'preview_stale'});
+  assert.equal(published(), false);
+  // Unchanged since the preview: published, as that version.
+  h.state.dry = DRY();
+  await h.s.publish(await previewed(h));
+  assert.ok(h.calls.includes('mise run dist:publish v4'));
+});
+
+test('publish-preview: a failed check is shown (no version, nothing to confirm); a stale base that was never installed asks to install first', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  const failed = {transport: 'biz', base: 'v3', version: null, changed: null, checks: {gitleaks: 'failed', machine_paths: 'ok'}, error: 'gitleaks found 1 leak in a.md token=abc123'};
+  h.exits['--dry-run'] = [{status: 1, stderr: 'usage: noise', stdout: JSON.stringify(failed)}];
+  const blocked = await h.s.publishPreview();
+  assert.deepEqual([blocked.blocked, blocked.changed, blocked.version, blocked.checks.gitleaks], [true, false, null, 'failed']);
+  assert.match(blocked.error, /gitleaks found 1 leak in a\.md/);
+  assert.doesNotMatch(blocked.error, /abc123/);
+  // It cannot be published, even by posting its digest back.
+  h.exits['--dry-run'] = [{status: 1, stdout: JSON.stringify(failed)}];
+  await assert.rejects(h.s.publish({version: 'v4', digest: blocked.digest}), {message: 'preview_stale'});
+  assert.ok(!h.calls.some(c => /dist:publish v\d+$/.test(c)));
+  // Stale: Biz is ahead (JSON on stdout); never installed (base none) is the install-first flow.
+  h.exits['--dry-run'] = [{status: 3, stdout: JSON.stringify({transport: 'biz', base: 'v3', current: 'v5', version: null, stale_base: true, changed: null})}];
+  await assert.rejects(h.s.publishPreview(), {message: 'stale_base'});
+  h.exits['--dry-run'] = [{status: 3, stdout: JSON.stringify({transport: 'biz', base: 'none', current: 'v5', version: null, stale_base: true, changed: null})}];
+  await assert.rejects(h.s.publishPreview(), {message: 'setup_not_installed'});
+  // Nothing changed: the version is the latest published one.
+  h.state.dry = DRY({changed: false, version: 'v3'});
+  assert.deepEqual([(await h.s.publishPreview()).changed, (await h.s.publishPreview()).version], [false, 'v3']);
 });

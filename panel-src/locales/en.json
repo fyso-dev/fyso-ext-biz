@@ -308,6 +308,7 @@
     "secretsPending": "The setup's secrets are not encrypted for this installation's key yet, so they were not installed: {{names}}. They arrive automatically once the administrator publishes again.",
     "paused": "Sync is paused ({{reason}}); nothing was changed.",
     "connected": "Connected. Setup {{version}} applied.",
+    "connectedPublisher": "Connected. Setup {{version}} published by this project.",
     "offered": "The organization offers setup {{version}}.",
     "noneOffered": "The organization has not published a setup yet; only its rules apply.",
     "connect": "Connect and review changes",
@@ -342,7 +343,12 @@
       "dist_failed": "The distribution could not be applied.",
       "stale_base": "Another administrator published a newer setup. Update and merge it, then publish again.",
       "merge_conflict": "The latest setup conflicts with your local edits in the files below. Nothing was changed.",
-      "setup_not_installed": "This project has not installed the setup Biz already has. Install it first, then publish."
+      "setup_not_installed": "This project has not installed the setup Biz already has. Install it first, then publish.",
+      "framework_update_required": "This project's framework is too old to preview a publication. Update the framework first.",
+      "preview_stale": "The project changed after the preview. Review the new preview and confirm again.",
+      "preview_required": "Review the preview before publishing.",
+      "publish_failed": "The setup could not be published.",
+      "unexpected_response": "The framework's preview could not be read."
     },
     "mergeAndPublish": "Update and merge",
     "conflicts": "Conflicting files",
@@ -350,6 +356,29 @@
     "installFirst": "Install the current setup first",
     "keepMine": "Keep mine",
     "takePublished": "Take the published one",
-    "resolveMerge": "Resolve and merge"
+    "resolveMerge": "Resolve and merge",
+    "publishedVersion": "Setup {{version}} published.",
+    "pub": {
+      "title": "What will be published",
+      "versions": "From {{base}} to {{version}}",
+      "versionsFirst": "First version: {{version}}",
+      "noChanges": "There are no changes to publish.",
+      "blocked": "A check failed, so nothing can be published: {{error}}",
+      "files": "Files ({{count}} in the setup)",
+      "bots": "Bots",
+      "extensions": "Extensions",
+      "mcp": "MCP servers",
+      "secrets": "Secrets that will be sent (names only)",
+      "recipients": "Recipients: {{count}}",
+      "recipientsChanged": "Recipients: {{count}} (changed)",
+      "checks": "Checks",
+      "framework": "Framework {{version}}",
+      "added": "Added ({{count}})",
+      "modified": "Modified ({{count}})",
+      "removed": "Removed ({{count}})",
+      "confirm": "Confirm publication",
+      "cancel": "Cancel",
+      "close": "Close"
+    }
   }
 }

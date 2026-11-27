@@ -25,11 +25,35 @@ const ID = /^[a-z][a-z0-9-]{1,30}$/;
 const KEEP_EXTENSIONS = new Set(['biz']);
 const ERRORS = ['no_access', 'not_connected', 'reauthorize_required', 'frozen', 'access_required', 'admin_required', 'preview_changed',
   'dist_failed', 'key_unavailable', 'invalid_age_key', 'biz_access_unavailable', 'invalid_biz_access_decision', 'profile_required',
-  'unexpected_response', 'busy'];
+  'unexpected_response', 'busy', 'preview_stale', 'preview_required', 'framework_update_required', 'publish_failed'];
+// Errors the publish flow answers with as they are; anything else becomes `publish_failed` with the command's stderr tail.
+const PUBLISH_CODES = new Set([...ERRORS, 'stale_base', 'setup_not_installed', 'merge_conflict']);
+const KEY_RETRY_MS = 1500;
+const DETAIL = 300;
 
 /** Run a command in the project and return its stdout; stderr goes to the caller's log. */
 function defaultRun(command, args, {env = process.env, cwd = process.cwd(), timeout = 900000} = {}) {
-  return execFileSync(command, args, {cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout, maxBuffer: 16 * 1024 * 1024});
+  // stderr is captured (a failure carries it as `error.stderr`) and still passed on to the caller's log.
+  try {
+    const stdout = execFileSync(command, args, {cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 16 * 1024 * 1024});
+    return stdout;
+  } catch (error) {
+    if (error.stderr) process.stderr.write(String(error.stderr));
+    throw error;
+  }
+}
+
+/** Block the thread for a moment (the retry of a command that failed once; nothing else is waiting on it). */
+const pauseFor = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** The last part of a failed command's stderr, without anything that looks like a secret. */
+function stderrTail(error, max = DETAIL) {
+  const text = String(error?.stderr ?? '').replace(/\u001b\[[0-9;]*m/g, '')
+    .replace(/AGE-SECRET-KEY-[A-Z0-9]+/g, '[redacted]')
+    .replace(/\b((?:token|password|passwd|secret|api[_-]?key|authorization|bearer)\w*\s*[=:]\s*)\S+/gi, '$1[redacted]')
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\s+/g, ' ').trim();
+  return text.length > max ? `...${text.slice(-max)}` : text;
 }
 
 const stateFile = env => path.join(auth.dataDir(env), STATE);
@@ -57,6 +81,32 @@ function isFrozen(env = process.env) {
 const names = value => (Array.isArray(value) ? value : []).filter(item => typeof item === 'string');
 const union = (...lists) => [...new Set(lists.flatMap(names))];
 const digestOf = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/** JSON with sorted keys, so the same data always has the same digest. */
+const stable = value => Array.isArray(value) ? value.map(stable)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+
+const LIST_MAX = 2000, ITEM_MAX = 300;
+const list = value => (Array.isArray(value) ? value : []).filter(item => typeof item === 'string').map(item => item.slice(0, ITEM_MAX)).slice(0, LIST_MAX);
+const isLists = (value, keys) => value && typeof value === 'object' && keys.every(key => Array.isArray(value[key]));
+
+/** The `dist:publish --dry-run --json` answer, checked and reduced to the fields the panel shows; null when it is not that. */
+function publishPreviewOf(raw) {
+  if (!raw || typeof raw !== 'object' || typeof raw.version !== 'string' || typeof raw.changed !== 'boolean') return null;
+  if (!isLists(raw.files, ['added', 'modified', 'removed']) || !isLists(raw.bots, ['added', 'modified', 'removed'])
+    || !isLists(raw.extensions, ['added', 'removed']) || !isLists(raw.mcp_servers, ['added', 'removed']) || !Array.isArray(raw.secrets)) return null;
+  if (!raw.recipients || !Number.isFinite(raw.recipients.count)) return null;
+  const group = (value, keys) => Object.fromEntries(keys.map(key => [key, list(value[key])]));
+  const checks = {};
+  for (const [name, state] of Object.entries(raw.checks && typeof raw.checks === 'object' ? raw.checks : {}).slice(0, 20)) {
+    if (typeof state === 'string') checks[name.slice(0, 40)] = state.slice(0, 40);
+  }
+  return {transport: typeof raw.transport === 'string' ? raw.transport.slice(0, 20) : null, base: typeof raw.base === 'string' ? raw.base.slice(0, 40) : null,
+    version: raw.version.slice(0, 40), changed: raw.changed, files: group(raw.files, ['added', 'modified', 'removed']),
+    files_count: Number.isFinite(raw.files_count) ? raw.files_count : 0, bots: group(raw.bots, ['added', 'modified', 'removed']),
+    extensions: group(raw.extensions, ['added', 'removed']), mcp_servers: group(raw.mcp_servers, ['added', 'removed']), secrets: list(raw.secrets),
+    recipients: {count: raw.recipients.count, changed: raw.recipients.changed === true}, framework: typeof raw.framework === 'string' ? raw.framework.slice(0, 40) : null, checks};
+}
 
 /** The JSON object a command printed (tolerating log lines before it). */
 function jsonOf(output) {
@@ -137,7 +187,7 @@ function removalsOf({report, local, setup, catalog}) {
 
 const removalCount = removals => Object.values(removals).reduce((total, items) => total + items.length, 0);
 
-function setup({env = process.env, root = process.cwd(), access, store, run = defaultRun, now = Date.now, deliverTeams, catalog, yaml} = {}) {
+function setup({env = process.env, root = process.cwd(), access, store, run = defaultRun, now = Date.now, deliverTeams, catalog, yaml, sleep = pauseFor} = {}) {
   access ??= require('./project-access.cjs').projectAccess({env});
   store ??= auth.store({env});
   const sh = (command, args, options = {}) => run(command, args, {env, cwd: root, ...options});
@@ -176,10 +226,18 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return report;
   }
 
+  // `dist:key` prints this installation's PUBLIC key. It can fail while a snapshot runs, so it is tried twice.
   const ageKey = () => {
-    const key = mise('run', '-q', 'dist:key').split('\n').map(line => line.trim()).reverse().find(line => /^age1[0-9a-z]+$/.test(line));
-    if (!key) throw Error('key_unavailable');
-    return key;
+    let failure = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt) sleep(KEY_RETRY_MS);
+      try {
+        const key = mise('run', '-q', 'dist:key').split('\n').map(line => line.trim()).reverse().find(line => /^age1[0-9a-z]+$/.test(line));
+        if (key) return key;
+        failure = null;
+      } catch (error) { failure = error; }
+    }
+    throw Object.assign(Error('key_unavailable'), failure ? {cause: failure, detail: describe(failure)} : {});
   };
 
   /** What `dist:add`/`dist:update` would do; null when Biz has no setup. */
@@ -314,8 +372,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   }
 
   /** `dist:publish`: exit 3 (`stale_base`) means Biz has a newer version than this project was built on. */
-  function distPublish() {
-    try { return mise('run', 'dist:publish'); } catch (error) {
+  function distPublish(version) {
+    try { return mise('run', 'dist:publish', ...(version ? [version] : [])); } catch (error) {
       if (error.status === 3 || /stale_base/.test(`${error.message}${error.stderr || ''}`)) throw Object.assign(Error('stale_base'), {cause: error});
       // Exit 5: this publisher never installed the setup Biz already has; install it first.
       if (error.status === 5) throw Object.assign(Error('setup_not_installed'), {cause: error});
@@ -344,30 +402,121 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     }
   }
 
-  async function publish() {
+  /** What a failed command says, short and without secrets: its first line plus the tail of its stderr. */
+  function describe(error) {
+    const first = String((error.cause || error).message || '').split('\n')[0].slice(0, 120);
+    const tail = stderrTail(error.cause || error);
+    return tail && !first.includes(tail) ? `${first} (${tail})` : first;
+  }
+
+  /** The tree of the committed project: what `dist:publish` exports comes from it, so a change to it makes a preview stale. */
+  function treeOf() { try { return String(sh('git', ['rev-parse', 'HEAD^{tree}'])).trim(); } catch { return ''; } }
+
+  /** `dist:publish --dry-run --json`: what a publish would do, checked. Nothing is sent to Biz. */
+  function dryRun() {
+    let output;
+    try { output = mise('run', '-q', 'dist:publish', '--dry-run', '--json'); } catch (error) {
+      // The framework explains these on stdout as JSON: Biz is ahead (exit 3, also when this project never installed the setup).
+      let answer = null;
+      try { answer = jsonOf(error.stdout || ''); } catch { /* not JSON: an old framework or a crash */ }
+      if (error.status === 3 || answer?.stale_base === true || /stale_base/.test(`${error.stdout || ''}${error.stderr || ''}`)) {
+        throw Object.assign(Error(answer && (answer.base === 'none' || answer.base === null) ? 'setup_not_installed' : 'stale_base'), {cause: error});
+      }
+      // A failed check (gitleaks, machine paths): shown, with nothing to confirm.
+      if (answer?.checks && typeof answer.checks === 'object' && Object.values(answer.checks).includes('failed')) {
+        const checks = Object.fromEntries(Object.entries(answer.checks).slice(0, 20).filter(([, state]) => typeof state === 'string').map(([name, state]) => [name.slice(0, 40), state.slice(0, 40)]));
+        const blocked = {blocked: true, version: null, changed: false, checks, error: typeof answer.error === 'string' ? stderrTail({stderr: answer.error}) : ''};
+        return {...blocked, digest: digestOf(blocked)};
+      }
+      if (error.status === 5) throw Object.assign(Error('setup_not_installed'), {cause: error});
+      // A framework without the flag takes it as a version number and refuses it.
+      if (/dry-run|invalid version|unknown (option|flag|argument)|unrecognized|usage/i.test(`${error.stderr || ''}${error.message || ''}`)) throw Object.assign(Error('framework_update_required'), {cause: error});
+      throw error;
+    }
+    let raw;
+    try { raw = jsonOf(output); } catch { throw Error('framework_update_required'); }
+    const preview = publishPreviewOf(raw);
+    if (!preview) throw Error('unexpected_response');
+    return {...preview, digest: digestOf({preview, tree: treeOf()})};
+  }
+
+  async function adminBearer() {
     const bearer = await token();
-    const report = await readReport(bearer);
-    if (!report.admin) throw Error('admin_required');
-    await access.registerRecipient(bearer, ageKey());
-    const output = distPublish();
-    await afterPublish(bearer);
-    return {output: String(output).trim().split('\n').slice(-5).join('\n')};
+    if (!(await readReport(bearer)).admin) throw Error('admin_required');
+    return bearer;
+  }
+
+  /** Anything not coded is reported to the panel and the notices with the command's stderr tail. */
+  async function reporting(fn) {
+    try { return await fn(); } catch (error) {
+      if (error.message === 'key_unavailable' && error.detail) notify('publish_failed', `Could not publish: ${error.detail}`.slice(0, 500));
+      if (PUBLISH_CODES.has(error.message)) throw error;
+      const detail = error.detail || describe(error);
+      notify('publish_failed', `Could not publish: ${detail}`.slice(0, 500));
+      throw Object.assign(Error('publish_failed'), {cause: error, detail});
+    }
+  }
+
+  /** The preview before publishing: the framework's dry run, with the digest `publish` will ask for. */
+  async function publishPreview() {
+    return reporting(async () => {
+      const bearer = await adminBearer();
+      await access.registerRecipient(bearer, ageKey());
+      return dryRun();
+    });
+  }
+
+  /** Publish what the preview showed (same version, same digest), or nothing. */
+  async function publish({version, digest} = {}) {
+    if (typeof version !== 'string' || !version || typeof digest !== 'string' || !digest) throw Error('preview_required');
+    return reporting(async () => {
+      const bearer = await adminBearer();
+      await access.registerRecipient(bearer, ageKey());
+      const current = dryRun();
+      if (current.blocked || !current.changed || current.version !== version || current.digest !== digest) throw Error('preview_stale');
+      return publishNow(bearer, version);
+    });
+  }
+
+  /** `dist:publish` and the record of it (version, notice). */
+  async function publishNow(bearer, version, {reason} = {}) {
+    const output = String(distPublish(version));
+    await afterPublish(bearer, output, {reason});
+    return {output: output.trim().split('\n').slice(-5).join('\n'), version: readState(env).selfPublished ?? null};
   }
 
   /** "Update and merge": bring the latest version into this publisher's project (never discarding its edits), then publish again. */
   async function mergeAndPublish(choices) {
-    const bearer = await token();
-    if (!(await readReport(bearer)).admin) throw Error('admin_required');
-    snapshot();
-    distMerge(choices);
-    return publish();
+    return reporting(async () => {
+      const bearer = await adminBearer();
+      snapshot();
+      distMerge(choices);
+      await access.registerRecipient(bearer, ageKey());
+      return publishNow(bearer);
+    });
   }
 
-  /** The publisher's own project already is the setup: remember it so the next sync does not replace its files. */
-  async function afterPublish(bearer) {
+  /** The version `dist:status` reports as installed (a publisher records what it published). */
+  function installedVersion() {
+    try { return /^Version:\s+(\S+)/m.exec(String(mise('run', '-q', 'dist:status')))?.[1] ?? null; } catch { return null; }
+  }
+
+  /**
+   * The publisher's own project already is the setup: remember it so the next sync does not replace its files.
+   * The version comes from what `dist:publish` printed (`published v3 (234 files) to Biz`), not from Biz's
+   * report, which can still be a cached older answer.
+   */
+  async function afterPublish(bearer, output, {reason} = {}) {
+    const printed = /published (v\d+(?:\.\d+){0,2}) \((\d+) files/.exec(String(output || ''));
+    const version = printed?.[1] ?? installedVersion();
+    access.invalidate?.(bearer);
     const report = await readReport(bearer);
     const recipients = await access.recipients(bearer);
-    save({publishPaused: null, selfPublished: report.setup?.version ?? null, etag: report.etag, version: report.setup?.version ?? null, recipientsEtag: recipients.etag});
+    const published = version ?? report.setup?.version ?? null;
+    save({publishPaused: null, selfPublished: published, etag: report.etag, version: published, recipientsEtag: recipients.etag});
+    // "No changes since the last version; nothing published" is not a publication.
+    if (printed) notify('published', `Published setup ${printed[1]} (${printed[2]} files)${reason ? `: ${reason}` : ''}`);
+    return published;
   }
 
   /** Names of the secrets the distribution delivered: the keys of its (encrypted) file, plus what earlier plans listed. */
@@ -458,16 +607,16 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
         if (!readState(env).publishPaused && ((report.recipientsPending || 0) > 0 || recipients.etag !== readState(env).recipientsEtag)) {
           // The publisher's own key counts as pending until registered: register it, or every run would publish.
           await access.registerRecipient(bearer, ageKey());
-          try { distPublish(); } catch (error) {
+          let output;
+          try { output = distPublish(); } catch (error) {
             if (error.message !== 'stale_base') throw error;
             // Biz has a newer version: merge it once (the admin's edits are kept), then publish again.
             snapshot();
             distMerge();
-            distPublish();
+            output = distPublish();
           }
-          await afterPublish(bearer);
+          await afterPublish(bearer, output, {reason: 'recipients changed'});
           report = await readReport(bearer);
-          notify('published', 'Recipients changed: the setup was published again');
           result.status = 'published';
         }
       } catch (error) {
@@ -475,7 +624,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
         else if (error.message === 'merge_conflict') {
           save({publishPaused: {files: error.files, at: new Date(now()).toISOString()}});
           notify('merge_conflict', `Automatic publishing paused: the latest setup conflicts with local edits in ${error.files.join(', ') || 'some files'}. Nothing was changed; resolve them and publish from the panel.`);
-        } else notify('publish_failed', `Could not publish: ${String(error.message).slice(0, 100)}`);
+        } else notify('publish_failed', `Could not publish: ${error.detail || describe(error)}`.slice(0, 500));
       }
     }
     const latest = readState(env);
@@ -504,7 +653,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function status() {
     const state = readState(env), grant = store.profileStatus();
     return {connected: Boolean(state.connected) && grant.connected, grant: grant.connected, frozen: state.frozen === true, paused: state.paused || null,
-      publishPaused: state.publishPaused || null, version: state.version ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
+      publishPaused: state.publishPaused || null, version: state.version ?? null, selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
   // One change at a time: the sync workflow and the panel must not interleave.
@@ -519,10 +668,10 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     try { return await fn(...args); } finally { fs.rmSync(lock, {recursive: true, force: true}); }
   };
 
-  return {preview, apply: exclusive(apply), disconnect, publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf};
+  return {preview, apply: exclusive(apply), disconnect, publishPreview: exclusive(publishPreview), publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf};
 }
 
-module.exports = {setup, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};
+module.exports = {setup, stderrTail, publishPreviewOf, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};
 
 if (require.main === module) (async () => {
   const command = process.argv[2];
