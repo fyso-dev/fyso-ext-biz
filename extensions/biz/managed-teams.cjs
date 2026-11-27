@@ -180,7 +180,14 @@ module.exports = {OWNER, ERRORS, configured, deliver, managedBots, panelActions}
 if (require.main === module) (async () => {
   if (!configured()) return;
   const biz = require('./biz.cjs');
-  const credential = await biz.token();
+  let credential;
+  try { credential = await biz.token(); } catch (error) {
+    // Managed access connects with the person's profile grant, so a project that has not connected has no
+    // agent grant yet: nothing to deliver, and that is not a failure (it must not fail `mise run up`).
+    if (error.message !== 'not_connected') throw error;
+    console.error('Fyso Biz: managed teams skipped: not connected yet (connect from the panel)');
+    return;
+  }
   const mcp = biz.client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth: credential.oauth});
   // The guard reads the access report with the profile grant (scope framework_access), not the agent grant above.
   let profile;

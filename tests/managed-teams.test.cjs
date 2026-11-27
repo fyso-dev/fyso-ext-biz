@@ -305,3 +305,13 @@ test('the reauthorize guard reads the report with the credential it is given and
   await s.run({env, access: {report: async () => ({capabilities: ['app:panel'], reauthorizeRequired: false})}, credential: 'profile'});
   assert.equal(sync.readState(s.root).departments.Gone.managed, undefined);
 });
+
+test('a project that never connected skips quietly: exit 0 and a clear notice', () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'biz-nc-'));
+  const result = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, '../extensions/biz/managed-teams.cjs')], {
+    env: {PATH: process.env.PATH, FYSO_DATA: data, FYSO_BIZ_URL: 'http://localhost:9', FYSO_BIZ_ACCESS_ORGANIZATION: ORG}, encoding: 'utf8', cwd: data,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /managed teams skipped: not connected yet/);
+  assert.doesNotMatch(result.stderr, /connection_failed/);
+});

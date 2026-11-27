@@ -55,7 +55,7 @@ function projectAccess({env = process.env, transport = fetch} = {}) {
       redirect: 'error',
       signal: AbortSignal.timeout(5000),
     });
-    if (!response.ok) throw Error('biz_access_unavailable');
+    if (!response.ok) throw Object.assign(Error('biz_access_unavailable'), {status: response.status});
     return response.status === 204 ? null : response.json();
   }
 
