@@ -409,9 +409,6 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return tail && !first.includes(tail) ? `${first} (${tail})` : first;
   }
 
-  /** The tree of the committed project: what `dist:publish` exports comes from it, so a change to it makes a preview stale. */
-  function treeOf() { try { return String(sh('git', ['rev-parse', 'HEAD^{tree}'])).trim(); } catch { return ''; } }
-
   /** `dist:publish --dry-run --json`: what a publish would do, checked. Nothing is sent to Biz. */
   function dryRun() {
     let output;
@@ -437,7 +434,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     try { raw = jsonOf(output); } catch { throw Error('framework_update_required'); }
     const preview = publishPreviewOf(raw);
     if (!preview) throw Error('unexpected_response');
-    return {...preview, digest: digestOf({preview, tree: treeOf()})};
+    return {...preview, digest: digestOf(preview)};
   }
 
   async function adminBearer() {

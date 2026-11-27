@@ -613,9 +613,13 @@ test('publish needs the preview, and only what was shown is published (preview_s
   await assert.rejects(h.s.publish({version: 'v4'}), {message: 'preview_required'});
   const shown = await previewed(h);
   const published = () => h.calls.some(c => /dist:publish v\d+$/.test(c));
-  // The committed project changed since the preview.
+  // A commit that touches nothing published (a snapshot of memory, a log) does not make the preview stale.
   h.state.tree = 'tree2';
-  await assert.rejects(h.s.publish(shown), {message: 'preview_stale'});
+  h.state.dry = DRY();
+  assert.equal((await h.s.publishPreview()).digest, shown.digest, 'the digest covers the preview only');
+  await h.s.publish(shown);
+  assert.ok(h.calls.includes('mise run dist:publish v4'));
+  h.calls.length = 0;
   // The set of changes changed.
   const again = await previewed(h);
   h.state.dry = DRY({files: {added: ['a.md', 'c.md'], modified: [], removed: []}});
@@ -626,10 +630,12 @@ test('publish needs the preview, and only what was shown is published (preview_s
   h.state.dry = DRY({changed: false});
   await assert.rejects(h.s.publish(await previewed(h)), {message: 'preview_stale'});
   assert.equal(published(), false);
-  // Unchanged since the preview: published, as that version.
+  // A published file changed since the preview (a file moved from modified to added): stale, nothing published.
   h.state.dry = DRY();
-  await h.s.publish(await previewed(h));
-  assert.ok(h.calls.includes('mise run dist:publish v4'));
+  const listed = await previewed(h);
+  h.state.dry = DRY({files: {added: ['a.md'], modified: [], removed: []}});
+  await assert.rejects(h.s.publish(listed), {message: 'preview_stale'});
+  assert.equal(published(), false);
 });
 
 test('publish-preview: a failed check is shown (no version, nothing to confirm); a stale base that was never installed asks to install first', async () => {
