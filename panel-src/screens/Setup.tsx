@@ -1,7 +1,7 @@
-import { useEffect, useState } from "@fyso/panel";
-import { useTranslation } from "@fyso/panel";
+import { RelTime, useEffect, useState, useTranslation } from "@fyso/panel";
 import type { BizAccess } from "../api/biz";
 import { ConnectBiz } from "./Access";
+import { ChangeBadge, ChangeList, Loading, Notice, Section, StatRow, type ChangeKind } from "../components/ui";
 
 type Removals = {extensions:{id:string}[]; mcp_servers:{id:string}[]; bots:{name:string}[]; teams:{department:string}[]};
 type Preview = {setup:{version:string}|null; upToDate:boolean; removals:Removals; replaced:{path:string}[]; removalCount:number; digest:string; error?:string};
@@ -10,6 +10,12 @@ type Changes = Added & {modified:string[]};
 type PublishPreview = {version:string|null; base?:string|null; changed:boolean; blocked?:boolean; error?:string; files?:Changes; files_count?:number; bots?:Changes; extensions?:Added;
   mcp_servers?:Added; secrets?:string[]; recipients?:{count:number; changed:boolean}; framework?:string|null; checks:Record<string,string>; digest:string};
 type SetupStatus = {connected:boolean; selfPublished?:string|null; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
+
+const KINDS:ChangeKind[] = ["added", "modified", "removed"];
+const NOTICE_TONE:Record<string, string> = {connected:"ok", applied:"ok", published:"ok", unfrozen:"ok", publish_failed:"down", failed:"down", frozen:"down",
+  paused:"warn", merge_conflict:"warn", setup_not_installed:"warn"};
+const CHECK_TONE = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ? "pill-ok" : /^(failed|error)$/i.test(value) ? "pill-down" : "pill-unk";
+const CHECK_GLYPH = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ? "✓" : /^(failed|error)$/i.test(value) ? "×" : "·";
 
 const post = async (op:string, body?:object) => {
   const response = await fetch(`/api/ext/biz/profile/setup/${op}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body ?? {})});
@@ -55,54 +61,72 @@ export function Setup({access}:{access:BizAccess|null}) {
   const list = (r:Removals) => [...r.extensions.map(e=>t("setup.removeExtension", {name:e.id})), ...r.mcp_servers.map(e=>t("setup.removeMcp", {name:e.id})),
     ...r.bots.map(e=>t("setup.removeBot", {name:e.name})), ...r.teams.map(e=>t("setup.removeTeam", {name:e.department}))];
 
-  const lines = (title:string, items:string[]|undefined) => items && items.length > 0 ? <details><summary>{title}</summary><ul>{items.map(x=><li key={x}><code>{x}</code></li>)}</ul></details> : null;
-  const changes = (c:Changes|undefined, label?:string) => c ? <>{label && <p><strong>{label}</strong></p>}{lines(t("setup.pub.added", {count:c.added.length}), c.added)}{lines(t("setup.pub.modified", {count:c.modified.length}), c.modified)}{lines(t("setup.pub.removed", {count:c.removed.length}), c.removed)}</> : null;
-  const additions = (c:Added|undefined, label:string) => c && (c.added.length > 0 || c.removed.length > 0) ? <><p><strong>{label}</strong></p>{lines(t("setup.pub.added", {count:c.added.length}), c.added)}{lines(t("setup.pub.removed", {count:c.removed.length}), c.removed)}</> : null;
+  const count = (c:Partial<Changes>|undefined, kind:ChangeKind) => c?.[kind]?.length ?? 0;
+  const total = (c:Partial<Changes>|undefined) => KINDS.reduce((sum, kind)=>sum + count(c, kind), 0);
+  const badges = (c:Partial<Changes>) => KINDS.map(kind=>count(c, kind) > 0 ? <ChangeBadge key={kind} kind={kind} count={count(c, kind)} /> : null);
+  const changeRow = (key:string, label:string, c:Partial<Changes>|undefined, always = false) => c && (always || total(c) > 0)
+    ? <StatRow key={key} label={label} badges={badges(c)}>{total(c) > 0 ? KINDS.map(kind=><ChangeList key={kind} kind={kind} items={c[kind] ?? []} />) : undefined}</StatRow> : null;
+  const pathList = (items:string[]) => <ul className="biz-files">{items.map(x=><li key={x}><code>{x}</code></li>)}</ul>;
 
   if (!access || noSession) return <ConnectBiz />;
   if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
-  if (!status) return <section className="card"><p role="status" className="mute">{t("setup.loading")}</p></section>;
-  return <section className="card biz-stack" aria-labelledby="biz-setup">
-    <h2 id="biz-setup" className="biz-h2">{t("setup.title")}</h2>
-    <p className="mute">{t("setup.intro")}</p>
-    {status.noAccess && <p className="banner banner-warn" role="status">{t("setup.noAccess")}</p>}
-    {status.frozen && <p className="banner banner-down" role="alert">{t("setup.frozen")}</p>}
-    {(status.secretsPending?.length ?? 0) > 0 && <p className="banner banner-warn" role="status">{t("setup.secretsPending", {names:status.secretsPending!.join(", ")})}</p>}
-    {status.paused && <p className="banner banner-warn" role="status">{t("setup.paused", {reason:status.paused.reason})}</p>}
-    {message && <p role={message.ok ? "status" : "alert"} className={message.ok ? "biz-success" : "biz-error"}>{message.text}</p>}
+  if (!status) return <Loading text={t("setup.loading")} />;
+
+  const actions = status.connected ? <>
+    {status.admin && !pub && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("publish-preview", undefined, setPub)}>{t("setup.publish")}</button>}
+    <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void run("disconnect")}>{t("setup.disconnect")}</button>
+  </> : undefined;
+  const sums = KINDS.map(kind=>pub ? [pub.files, pub.bots, pub.extensions, pub.mcp_servers].reduce((sum, c)=>sum + count(c, kind), 0) : 0);
+
+  return <Section id="biz-setup" title={t("setup.title")} intro={t("setup.intro")} actions={actions}>
+    {status.noAccess && <Notice tone="warn">{t("setup.noAccess")}</Notice>}
+    {status.frozen && <Notice tone="down">{t("setup.frozen")}</Notice>}
+    {(status.secretsPending?.length ?? 0) > 0 && <Notice tone="warn">{t("setup.secretsPending", {names:status.secretsPending!.join(", ")})}</Notice>}
+    {status.paused && <Notice tone="warn">{t("setup.paused", {reason:status.paused.reason})}</Notice>}
+    {status.publishPaused && <Notice tone="warn">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</Notice>}
+    {message && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
     {status.connected
-      ? <p className="hint">{status.admin && status.selfPublished && status.selfPublished === status.version ? t("setup.connectedPublisher", {version:status.version}) : t("setup.connected", {version:status.version ?? "-"})}</p>
+      ? <Notice tone="ok">{status.admin && status.selfPublished && status.selfPublished === status.version ? t("setup.connectedPublisher", {version:status.version}) : t("setup.connected", {version:status.version ?? "-"})}</Notice>
       : !status.noAccess && !preview && <>
-        <p className="hint">{status.offered ? t("setup.offered", {version:status.offered.version}) : t("setup.noneOffered")}</p>
-        <button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.connect")}</button>
+        <Notice tone="info">{status.offered ? t("setup.offered", {version:status.offered.version}) : t("setup.noneOffered")}</Notice>
+        <div className="connector-actions"><button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.connect")}</button></div>
       </>}
-    {preview && <div role="group" aria-label={t("setup.previewTitle")}>
-      <h3>{t("setup.previewTitle")}</h3>
-      {preview.removalCount === 0 && preview.replaced.length === 0 ? <p className="mute">{t("setup.nothingLost")}</p> : <p className="banner banner-warn" role="alert">{t("setup.warning")}</p>}
-      {preview.replaced.length > 0 && <><p><strong>{t("setup.replaced", {count:preview.replaced.length})}</strong></p><ul>{preview.replaced.map(f=><li key={f.path}><code>{f.path}</code></li>)}</ul></>}
-      {preview.removalCount > 0 && <><p><strong>{t("setup.removed", {count:preview.removalCount})}</strong></p><ul>{list(preview.removals).map(x=><li key={x}>{x}</li>)}</ul></>}
+    {preview && <div className="biz-preview-panel" role="group" aria-labelledby="biz-setup-preview">
+      <h3 id="biz-setup-preview">{t("setup.previewTitle")}</h3>
+      {preview.removalCount === 0 && preview.replaced.length === 0 ? <Notice tone="ok">{t("setup.nothingLost")}</Notice> : <Notice tone="warn" role="alert">{t("setup.warning")}</Notice>}
+      {(preview.replaced.length > 0 || preview.removalCount > 0) && <ul className="biz-stats">
+        {preview.replaced.length > 0 && <StatRow label={t("setup.replaced", {count:preview.replaced.length})}>{pathList(preview.replaced.map(f=>f.path))}</StatRow>}
+        {preview.removalCount > 0 && <StatRow label={t("setup.removed", {count:preview.removalCount})}>{pathList(list(preview.removals))}</StatRow>}
+      </ul>}
       <p className="hint">{t("setup.snapshotNote")}</p>
       <div className="connector-actions">
         <button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("confirm", {digest:preview.digest}, ()=>{ setPreview(undefined); setMessage({ok:true, text:t("setup.applied")}); })}>{t("setup.confirm")}</button>
         <button type="button" className="btn btn-soft" disabled={busy} onClick={()=>void run("cancel", undefined, ()=>setPreview(undefined))}>{t("setup.cancel")}</button>
       </div>
     </div>}
-    {pub && <div role="group" aria-label={t("setup.pub.title")}>
-      <h3>{t("setup.pub.title")}</h3>
+    {pub && <div className="biz-preview-panel" role="group" aria-labelledby="biz-setup-publish">
+      <h3 id="biz-setup-publish">{t("setup.pub.title")}</h3>
       {pub.blocked
-        ? <p className="banner banner-warn" role="alert">{t("setup.pub.blocked", {error:pub.error || Object.entries(pub.checks).filter(([, v])=>v === "failed").map(([k])=>k).join(", ")})}</p>
+        ? <Notice tone="warn" role="alert">{t("setup.pub.blocked", {error:pub.error || Object.entries(pub.checks).filter(([, v])=>v === "failed").map(([k])=>k).join(", ")})}</Notice>
         : !pub.changed
-          ? <p className="mute">{t("setup.pub.noChanges")}</p>
+          ? <Notice tone="info">{t("setup.pub.noChanges")}</Notice>
           : <>
-            <p>{pub.base ? t("setup.pub.versions", {base:pub.base, version:pub.version}) : t("setup.pub.versionsFirst", {version:pub.version})}</p>
-            {pub.files && <><p><strong>{t("setup.pub.files", {count:pub.files_count ?? 0})}</strong></p>{changes(pub.files)}</>}
-            {pub.bots && (pub.bots.added.length > 0 || pub.bots.modified.length > 0 || pub.bots.removed.length > 0) && changes(pub.bots, t("setup.pub.bots"))}
-            {additions(pub.extensions, t("setup.pub.extensions"))}
-            {additions(pub.mcp_servers, t("setup.pub.mcp"))}
-            {pub.secrets && pub.secrets.length > 0 && <><p><strong>{t("setup.pub.secrets")}</strong></p><p><code>{pub.secrets.join(", ")}</code></p></>}
-            {pub.recipients && <p>{t(pub.recipients.changed ? "setup.pub.recipientsChanged" : "setup.pub.recipients", {count:pub.recipients.count})}</p>}
+            <p className="biz-versions">{pub.base ? t("setup.pub.versions", {base:pub.base, version:pub.version}) : t("setup.pub.versionsFirst", {version:pub.version})}</p>
+            <div className="plan-sum">{KINDS.map((kind, i)=>sums[i]! > 0 ? <ChangeBadge key={kind} kind={kind} count={sums[i]!} /> : null)}</div>
+            <ul className="biz-stats">
+              {changeRow("files", t("setup.pub.files", {count:pub.files_count ?? 0}), pub.files, true)}
+              {changeRow("bots", t("setup.pub.bots"), pub.bots)}
+              {changeRow("extensions", t("setup.pub.extensions"), pub.extensions)}
+              {changeRow("mcp", t("setup.pub.mcp"), pub.mcp_servers)}
+              {pub.secrets && pub.secrets.length > 0 && <StatRow label={t("setup.pub.secrets")} badges={<span className="biz-stat-value">{pub.secrets.length}</span>}>{pathList(pub.secrets)}</StatRow>}
+              {pub.recipients && <StatRow label={t(pub.recipients.changed ? "setup.pub.recipientsChanged" : "setup.pub.recipients", {count:pub.recipients.count})} badges={pub.recipients.changed ? <span className="pill pill-warn">{pub.recipients.count}</span> : undefined} />}
+            </ul>
           </>}
-      {Object.keys(pub.checks ?? {}).length > 0 && <p className="hint">{t("setup.pub.checks")}: {Object.entries(pub.checks).map(([k, v])=>`${k}: ${v}`).join(", ")}{pub.framework ? ` · ${t("setup.pub.framework", {version:pub.framework})}` : ""}</p>}
+      {(Object.keys(pub.checks ?? {}).length > 0 || pub.framework) && <div className="biz-checks" role="group" aria-label={t("setup.pub.checks")}>
+        <span className="label">{t("setup.pub.checks")}</span>
+        {Object.entries(pub.checks ?? {}).map(([k, v])=><span key={k} className={`pill ${CHECK_TONE(v)}`}><span className="glyph" aria-hidden="true">{CHECK_GLYPH(v)}</span>{k}: {v}</span>)}
+        {pub.framework && <span className="pill pill-outline">{t("setup.pub.framework", {version:pub.framework})}</span>}
+      </div>}
       <div className="connector-actions">
         {pub.changed && !pub.blocked && <button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("publish", {version:pub.version, digest:pub.digest}, r=>{ setPub(undefined); setMessage({ok:true, text:r.version ? t("setup.publishedVersion", {version:r.version}) : t("setup.published")}); })}>{t("setup.pub.confirm")}</button>}
         <button type="button" className="btn btn-soft" disabled={busy} onClick={()=>setPub(undefined)}>{pub.changed && !pub.blocked ? t("setup.pub.cancel") : t("setup.pub.close")}</button>
@@ -110,16 +134,19 @@ export function Setup({access}:{access:BizAccess|null}) {
     </div>}
     {stale && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("merge", {}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.mergeAndPublish")}</button></div>}
     {notInstalled && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.installFirst")}</button></div>}
-    {conflicts.length > 0 && <fieldset><legend>{t("setup.conflicts")}</legend><ul>{conflicts.map(f=><li key={f}><code>{f}</code>{" "}
-      <label><input type="radio" name={f} checked={choice[f] === "ours"} onChange={()=>setChoice({...choice, [f]:"ours"})} /> {t("setup.keepMine")}</label>{" "}
-      <label><input type="radio" name={f} checked={choice[f] === "theirs"} onChange={()=>setChoice({...choice, [f]:"theirs"})} /> {t("setup.takePublished")}</label></li>)}</ul>
-      <button type="button" className="btn btn-sm btn-pri" disabled={busy || conflicts.some(f=>!choice[f])}
-        onClick={()=>void run("merge", {ours:conflicts.filter(f=>choice[f] === "ours"), theirs:conflicts.filter(f=>choice[f] === "theirs")}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.resolveMerge")}</button></fieldset>}
-    {status.publishPaused && <p className="banner banner-warn" role="status">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</p>}
-    {status.connected && <div className="connector-actions">
-      {status.admin && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("publish-preview", undefined, setPub)}>{t("setup.publish")}</button>}
-      <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void run("disconnect")}>{t("setup.disconnect")}</button>
+    {conflicts.length > 0 && <fieldset className="biz-conflicts"><legend>{t("setup.conflicts")}</legend>
+      {conflicts.map(f=><div className="biz-conflict" key={f}><code>{f}</code>
+        <label><input type="radio" name={f} checked={choice[f] === "ours"} onChange={()=>setChoice({...choice, [f]:"ours"})} /> {t("setup.keepMine")}</label>
+        <label><input type="radio" name={f} checked={choice[f] === "theirs"} onChange={()=>setChoice({...choice, [f]:"theirs"})} /> {t("setup.takePublished")}</label></div>)}
+      <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy || conflicts.some(f=>!choice[f])}
+        onClick={()=>void run("merge", {ours:conflicts.filter(f=>choice[f] === "ours"), theirs:conflicts.filter(f=>choice[f] === "theirs")}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.resolveMerge")}</button></div></fieldset>}
+    {status.notices.length > 0 && <div className="biz-subsection">
+      <h3>{t("setup.notices")}</h3>
+      <ul className="card list biz-events">{[...status.notices].reverse().slice(0, 5).map(n=><li key={n.at+n.kind} className={`row biz-event-${NOTICE_TONE[n.kind] ?? "unk"}`}>
+        <span className="biz-event-dot" aria-hidden="true" />
+        <span className="biz-event-text">{n.text}</span>
+        <span className="biz-event-time"><RelTime at={n.at} /></span>
+      </li>)}</ul>
     </div>}
-    {status.notices.length > 0 && <><h3>{t("setup.notices")}</h3><ul>{[...status.notices].reverse().slice(0, 5).map(n=><li key={n.at+n.kind}><span className="hint">{n.at.slice(0, 16).replace("T", " ")}</span> {n.text}</li>)}</ul></>}
-  </section>;
+  </Section>;
 }

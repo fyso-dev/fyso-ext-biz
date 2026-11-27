@@ -1,6 +1,6 @@
-import { useEffect, useState } from "@fyso/panel";
-import { useTranslation } from "@fyso/panel";
+import { useEffect, useState, useTranslation } from "@fyso/panel";
 import type { BizAccess } from "../api/biz";
+import { Notice, Section } from "../components/ui";
 
 const SETTINGS = ["extensions", "mcp_servers", "bots", "read", "write", "shell", "publish", "ai"] as const;
 const ROLES = ["lider", "miembro", "lectura"];
@@ -48,8 +48,8 @@ export function ConnectBiz({reauthorize}:{reauthorize?:boolean}) {
   const {t} = useTranslation();
   return <section className="card biz-hero" aria-labelledby="biz-managed-connect">
     <span className="empty-icon" aria-hidden="true">⇄</span>
-    <h2 id="biz-managed-connect">{t("access.connectTitle")}</h2>
-    {reauthorize && <p className="banner banner-down" role="alert">{t("access.reauthorize")}</p>}
+    <h2 id="biz-managed-connect" className="empty-title">{t("access.connectTitle")}</h2>
+    {reauthorize && <Notice tone="warn" role="alert">{t("access.reauthorize")}</Notice>}
     <p className="mute">{t("access.connectDescription")}</p>
     <ol className="biz-benefits">
       <li>{t("access.connectStepSignIn")}</li>
@@ -57,7 +57,7 @@ export function ConnectBiz({reauthorize}:{reauthorize?:boolean}) {
       <li>{t("access.connectStepPreview")}</li>
     </ol>
     <form method="post" action="/api/ext/biz/profile/login" target="_top">
-      <button type="submit" className="btn btn-pri biz-cta">{t(reauthorize ? "access.reconnect" : "access.connectButton")}</button>
+      <button type="submit" className="btn btn-lg btn-pri">{t(reauthorize ? "access.reconnect" : "access.connectButton")}</button>
     </form>
   </section>;
 }
@@ -68,10 +68,8 @@ export function Access({access}:{access:BizAccess}) {
   // An old grant: Biz cannot tell who this is. Not "no departments": ask to reconnect.
   if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   return <>
-    <section className="card" aria-labelledby="biz-access-departments">
-      <h2 id="biz-access-departments">{t("access.departmentsTitle")}</h2>
-      <p className="mute">{t("access.departmentsIntro")}</p>
-      {admin && <p className="hint">{t("access.admin")}</p>}
+    <Section id="biz-access-departments" title={t("access.departmentsTitle")} intro={t("access.departmentsIntro")}>
+      {admin && <Notice tone="info">{t("access.admin")}</Notice>}
       {departments.length === 0
         ? <p className="mute">{t(admin ? "access.noneAdmin" : "access.none")}</p>
         : <ul className="biz-access-list">{departments.map(d => {
@@ -86,12 +84,10 @@ export function Access({access}:{access:BizAccess}) {
             </div>
           </li>;
         })}</ul>}
-    </section>
-    {policy && <section className="card" aria-labelledby="biz-access-policy">
-      <h2 id="biz-access-policy">{t("access.policyTitle")} <span className="pill pill-ok">{t(`access.preset.${policy.preset}`)}</span></h2>
-      <p className="mute">{t(`access.presetHint.${policy.preset}`)}</p>
+    </Section>
+    {policy && <Section id="biz-access-policy" title={t("access.policyTitle")} intro={t(`access.presetHint.${policy.preset}`)} actions={<span className="pill pill-ok">{t(`access.preset.${policy.preset}`)}</span>}>
       <ul className="biz-access-policy">{SETTINGS.map(key => <li key={key}>{t(`access.policy.${key}.${Math.min(Math.max(policy[key], 0), 2)}`)}</li>)}</ul>
       <p className="hint">{t("access.policyNote")}</p>
-    </section>}
+    </Section>}
   </>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore } from "@fyso/panel";
+import { Loading, Notice, Section } from "../components/ui";
 import type { BizDepartmentSync, BizProposed, BizPublished, BizSyncStatus } from "../api/biz";
 
 const TONE:Record<BizDepartmentSync["state"],string> = {synced:"pill-ok", pull:"pill-warn", propose:"pill-warn", proposed:"pill-surface", rejected:"pill-down",
@@ -65,16 +66,12 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
   const rows = (status?.departments ?? []).filter(d=>d.state !== "absent");
   const canPropose = status?.proposalsSupported !== false;
 
-  return <section className="card biz-stack" aria-labelledby="biz-sync">
-    <div className="connector-heading">
-      <h2 id="biz-sync" className="biz-h2">{t("biz.syncTitle")}</h2>
-      <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void load()}>{t("biz.syncRefresh")}</button>
-    </div>
-    <p className="mute">{t("biz.syncIntro")}</p>
-    {!status && <p role="status" className="mute">{t("biz.syncLoading")}</p>}
-    {status?.error && <p role="alert" className="biz-error">{error(status.error)}</p>}
-    {status && !status.error && status.publishSupported === false && <p className="banner banner-warn" role="status">{t("biz.syncNotSupported")}</p>}
-    {status && !status.error && !canPropose && <p className="banner banner-warn" role="status">{t("biz.syncProposalsNotSupported")}</p>}
+  return <Section id="biz-sync" title={t("biz.syncTitle")} intro={t("biz.syncIntro")}
+    actions={<button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void load()}>{t("biz.syncRefresh")}</button>}>
+    {!status && <Loading card={false} text={t("biz.syncLoading")} />}
+    {status?.error && <Notice tone="down">{error(status.error)}</Notice>}
+    {status && !status.error && status.publishSupported === false && <Notice tone="warn">{t("biz.syncNotSupported")}</Notice>}
+    {status && !status.error && !canPropose && <Notice tone="warn">{t("biz.syncProposalsNotSupported")}</Notice>}
     {status && !status.error && !rows.length && <p className="mute">{t("biz.syncEmpty")}</p>}
     {rows.length > 0 && <ul className="biz-sync">{rows.map(d=>{
       const working = active === d.department;
@@ -93,14 +90,14 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
         {d.localName && <p className="hint">{t("biz.syncRenamed", {local:d.localName})}</p>}
         {d.state === "conflict" && <p className="hint">{t("biz.syncConflictHint")}</p>}
         {d.state === "proposed" && <p className="hint" role="status">{t("biz.syncWaiting")}</p>}
-        {proposal?.state === "accepted" && d.state === "pull" && <p className="biz-success" role="status">✓ {t("biz.syncAccepted", {version:proposal.version})}</p>}
+        {proposal?.state === "accepted" && d.state === "pull" && <Notice tone="ok">{t("biz.syncAccepted", {version:proposal.version})}</Notice>}
         {d.state === "rejected" && <>
-          <p className="biz-error" role="alert">{proposal?.reason ? t("biz.syncRejectedReason", {reason:proposal.reason}) : t("biz.syncRejected")}</p>
+          <Notice tone="down">{proposal?.reason ? t("biz.syncRejectedReason", {reason:proposal.reason}) : t("biz.syncRejected")}</Notice>
           <p className="hint">{t("biz.syncRejectedHint")}</p>
         </>}
-        {message?.department === d.department && <p className={message.ok ? "biz-success" : "biz-error"} role={message.ok ? "status" : "alert"}>{message.ok ? "✓ " : ""}{message.text}</p>}
+        {message?.department === d.department && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
         <div className="connector-actions">
-          {working && <span role="status" className="mute">{t(propose.phase === "running" ? "biz.syncProposing" : "biz.syncPublishing")}</span>}
+          {working && <span role="status" className="hint">{t(propose.phase === "running" ? "biz.syncProposing" : "biz.syncPublishing")}</span>}
           {!working && d.state === "unpublished" && canPublish && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendPublish(d.department)}>{t("biz.syncPublish")}</button>}
           {!working && d.state === "propose" && canPropose && mayPropose && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncPropose")}</button>}
           {!working && d.state === "pull" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, false)}>{t("biz.syncPull", {version:d.remoteVersion})}</button>}
@@ -115,5 +112,5 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
         </div>
       </li>;
     })}</ul>}
-  </section>;
+  </Section>;
 }

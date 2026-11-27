@@ -1,4 +1,5 @@
 import { useEffect, useState, useStore, useTranslation } from '@fyso/panel'
+import { Notice } from '../components/ui'
 
 type Address = { bot: string; address: string }
 type Action = 'activate' | 'deactivate' | 'reset'
@@ -56,16 +57,12 @@ export function Mail() {
   }
   const bots = store.runtimeBots.data ?? []
   return (
-    <section className="biz-stack">
+    <section className="biz-stack" aria-labelledby="biz-mail">
       <div>
-        <h2 className="biz-h2">{t('biz.mailTitle')}</h2>
+        <h2 id="biz-mail" className="biz-h2">{t('biz.mailTitle')}</h2>
         <p className="note">{t('biz.mailIntro')}</p>
       </div>
-      {error && (
-        <p role="alert" className="banner banner-down">
-          {t('biz.mailError')}
-        </p>
-      )}
+      {error && <Notice tone="down">{t('biz.mailError')}</Notice>}
       <ul className="card list">
         {bots.map(bot => {
           const address = addresses.find(item => item.bot === bot.id)?.address

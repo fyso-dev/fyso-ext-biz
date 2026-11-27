@@ -3,6 +3,7 @@ import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, External } from "@fyso/panel";
 import type { BizTeam, BizTeamPrepared, BotsPlan } from "../api/biz";
 import { Departments } from "./Departments";
+import { Empty, Loading, Notice } from "../components/ui";
 
 type Applied = {created:number;changed:number;deleted:number;commit:string};
 
@@ -51,20 +52,18 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
   const preparing = prepare.phase === "running" || preview.phase === "running";
 
   const listFailed = listError && t(`biz.teamErrors.${listError}`, {defaultValue:t("biz.teamErrors.connection_failed")});
-  if (!teams) return <div className="card empty">
-    {listFailed && !loading ? <><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></>
-      : <p role="status" className="mute">{t("biz.teamsLoading")}</p>}
-  </div>;
+  if (!teams) return listFailed && !loading
+    ? <Empty icon="!"><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></Empty>
+    : <Loading text={t("biz.teamsLoading")} />;
   const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} onRestoreName={id=>void download({id}, false, "team-rename")} />;
-  if (!teams.length) return <div className="biz-stack">{departments}<div className="card empty"><span className="empty-icon" aria-hidden="true">✦</span>
-    <h3>{t("biz.teamsEmptyTitle")}</h3><p className="mute">{t("biz.teamsEmpty")}</p>
+  if (!teams.length) return <div className="biz-stack">{departments}<Empty icon="✦" title={t("biz.teamsEmptyTitle")}><p className="mute">{t("biz.teamsEmpty")}</p>
     {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}
-  </div></div>;
+  </Empty></div>;
 
   return <div className="biz-stack">
     {departments}
-    {listFailed && !loading && <div className="banner banner-down" role="alert">{listFailed} <button type="button" className="btn btn-sm btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></div>}
-    {error && !error.team && <div className="banner banner-down" role="alert">{error.text}</div>}
+    {listFailed && !loading && <Notice tone="down">{listFailed} <button type="button" className="btn btn-sm btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></Notice>}
+    {error && !error.team && <Notice tone="down">{error.text}</Notice>}
     {loading && <p className="hint" role="status">{t("biz.refreshing")}</p>}
     <div className="connector-grid">{teams.map(team=>{
       const state = team.localVersion === null ? "new" : (team.version ?? 0) > team.localVersion ? "update" : "current";
@@ -77,11 +76,11 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
         {team.department && <p className="hint">{t("biz.teamLocalDepartment", {department:team.department})}</p>}
         {team.description && <p className="mute">{team.description}</p>}
         <div className="biz-chips"><span className="pill pill-surface">{t("biz.agentsCount", {count:team.agents ?? 0})}</span><span className="pill pill-surface">{t("biz.skillsCount", {count:team.skills ?? 0})}</span></div>
-        {done?.team === team.id && <p className="biz-success" role="status">✓ {t("biz.teamApplied", {count:done.applied.created + done.applied.changed})}</p>}
-        {error?.team === team.id && <p className="biz-error" role="alert">{error.text}</p>}
-        {open && preparing && <p role="status" className="mute">{t("biz.teamPreparing")}</p>}
+        {done?.team === team.id && <Notice tone="ok">{t("biz.teamApplied", {count:done.applied.created + done.applied.changed})}</Notice>}
+        {error?.team === team.id && <Notice tone="down">{error.text}</Notice>}
+        {open && preparing && <Loading card={false} text={t("biz.teamPreparing")} />}
         {open && prepared && plan && <div className="biz-preview">
-          <p><strong>{t(plan.created + plan.changed + plan.deleted === 0 ? "biz.previewTeam" : "biz.previewTitle")}</strong></p>
+          <h4 className="biz-h2">{t(plan.created + plan.changed + plan.deleted === 0 ? "biz.previewTeam" : "biz.previewTitle")}</h4>
           <ul className="biz-bots">{prepared.bots.map(bot=><li key={bot.name}><span className="avatar" aria-hidden="true">{bot.name.charAt(0).toUpperCase()}</span><span><strong>{bot.name}</strong>{bot.title && <><br/><span className="mute">{bot.title}</span></>}</span></li>)}</ul>
           {prepared.skills.length > 0 && <p className="mute">{t("biz.previewSkills", {skills:prepared.skills.join(", ")})}</p>}
           {plan.created + plan.changed + plan.deleted === 0 ? <p className="mute">{t("biz.previewNoChanges")}</p>

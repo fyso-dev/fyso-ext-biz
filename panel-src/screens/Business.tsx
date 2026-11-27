@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, RelTime } from "@fyso/panel";
 import type { BizSnapshot, BizPlan } from "../api/biz";
+import { Empty, Loading, Notice } from "../components/ui";
 import { read, remember, remembered } from "../api/read";
 
 const TONE:Record<string,string> = {saludable:"pill-ok", en_rango:"pill-ok", cumplido:"pill-ok", activo:"pill-accent", en_riesgo:"pill-warn", fuera_de_rango:"pill-down", dato_vencido:"pill-warn", sin_datos:"pill-unk", archivado:"pill-unk"};
@@ -71,11 +72,11 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
       <button type="button" className="btn btn-sm btn-soft" disabled={loading} onClick={()=>void refresh(department)}>{t(loading ? "biz.loading" : "biz.refresh")}</button>
     </div>
 
-    {failed && <div className="banner banner-down" role="alert">{t("biz.connectionError")}</div>}
-    {!data && !failed && <div className="card empty"><p role="status" className="mute">{t("biz.loading")}</p></div>}
-    {data && !data.department && <div className="card empty"><span className="empty-icon" aria-hidden="true">◎</span><p>{t("biz.chooseDepartment")}</p></div>}
+    {failed && <Notice tone="down">{t("biz.connectionError")}</Notice>}
+    {!data && !failed && <Loading text={t("biz.loading")} />}
+    {data && !data.department && <Empty icon="◎"><p>{t("biz.chooseDepartment")}</p></Empty>}
     {data?.department && <>
-      {data.warnings.length > 0 && <p className="banner banner-warn" role="status">{t("biz.partial")}</p>}
+      {data.warnings.length > 0 && <Notice tone="warn">{t("biz.partial")}</Notice>}
 
       <section className="biz-stack" aria-labelledby="biz-kpis">
         <h2 id="biz-kpis" className="biz-h2">{t("biz.kpis")}</h2>
@@ -99,8 +100,8 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
           </div>; })}
           {data.capabilities.levers === "available" && <div className="connector-actions"><button type="button" className="btn btn-sm btn-soft" aria-expanded={open === o.id} disabled={planLoading && open !== o.id} onClick={()=>void readPlan(o.id)}>{t(open === o.id ? "biz.hidePlan" : "biz.readPlan")}</button></div>}
           {open === o.id && <div className="biz-preview">
-            {planLoading && <p role="status" className="mute">{t("biz.loadingPlan")}</p>}
-            {planError && <p role="alert" className="biz-error">{t("biz.leversFailed")}</p>}
+            {planLoading && <Loading card={false} text={t("biz.loadingPlan")} />}
+            {planError && <Notice tone="down">{t("biz.leversFailed")}</Notice>}
             {plan && <>
               <p className="hint">{t(plan.paused ? "biz.paused" : "biz.active")}{plan.pending && ` · ${t("biz.pendingPlan")}`}{plan.checkin && ` · ${t("biz.checkin")}: ${plan.checkin.expectedAt}`}</p>
               {!plan.levers.length && <p className="mute">{t("biz.leversEmpty")}</p>}
@@ -109,7 +110,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
                 {l.description && <p>{l.description}</p>}
                 {l.hypothesis && <p className="hint">{l.hypothesis}</p>}
               </div>)}
-              {plan.decisions.length > 0 && <><p><strong>{t("biz.decisions")}</strong></p>{plan.decisions.map(d=><p className="hint" key={d.id}>• {d.name}</p>)}</>}
+              {plan.decisions.length > 0 && <><h4 className="biz-h2">{t("biz.decisions")}</h4>{plan.decisions.map(d=><p className="hint" key={d.id}>• {d.name}</p>)}</>}
             </>}
           </div>}
         </article>)}

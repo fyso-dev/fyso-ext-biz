@@ -9,6 +9,7 @@ import { Business } from "./Business";
 import { Work } from "./Work";
 import { Access, useBizAccess, useManagedAccess } from "./Access";
 import { Setup } from "./Setup";
+import { Empty, Loading, Notice } from "../components/ui";
 
 type Tab = "teams" | "business" | "work" | "access" | "setup";
 
@@ -62,45 +63,47 @@ export function Biz() {
     <div className="page-head">
       <div className="grow"><h1>{t("biz.title")}</h1><p>{t("biz.subtitle")}</p></div>
       {connection?.connected && <div className="biz-account">
-        <span className="pill pill-ok" role="status">● {context?.organization ? t("biz.connectedTo", {org:context.organization}) : t("biz.connected")}</span>
+        <span className="pill pill-ok" role="status"><span className="dot" aria-hidden="true" />{context?.organization ? t("biz.connectedTo", {org:context.organization}) : t("biz.connected")}</span>
         {connection.url && <External href={connection.url}>{t("biz.open")}</External>}
         {connection.method === "oauth" && <button type="button" className="btn btn-sm btn-ghost" disabled={leaving} onClick={()=>void disconnect()}>{t("biz.disconnect")}</button>}
       </div>}
     </div>
 
-    {s.extensions.status === "error" && <div className="banner banner-down" role="alert">{t("biz.configError")} <button className="btn btn-sm btn-soft" onClick={s.reload}>{t("common.retry")}</button></div>}
+    {s.extensions.status === "error" && <Notice tone="down">{t("biz.configError")} <button type="button" className="btn btn-sm btn-soft" onClick={s.reload}>{t("common.retry")}</button></Notice>}
     {installed && !connection && (overview?.error && !loading
-      ? <div className="card empty"><p role="alert">{t("biz.connectionError")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></div>
-      : <div className="card empty"><p role="status" className="mute">{t("biz.connecting")}</p></div>)}
+      ? <Empty icon="!"><p role="alert">{t("biz.connectionError")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></Empty>
+      : <Loading text={t("biz.connecting")} />)}
 
     {installed && connection && !connection.connected && <section className="card biz-hero" aria-labelledby="biz-connect">
       <span className="empty-icon" aria-hidden="true">⇄</span>
-      <h2 id="biz-connect">{t("biz.connectTitle")}</h2>
+      <h2 id="biz-connect" className="empty-title">{t("biz.connectTitle")}</h2>
       <p className="mute">{t("biz.connectDescription")}</p>
       <ul className="biz-benefits">
         <li>{t("biz.benefitTeams")}</li>
         <li>{t("biz.benefitContext")}</li>
         <li>{t("biz.benefitSafe")}</li>
       </ul>
-      {connection.error && <p className="biz-error" role="alert">{t("biz.connectionError")}</p>}
-      {connection.login ? <a className="btn btn-pri biz-cta" href={connection.login} target="_top">{t("biz.connect")}</a> : <p className="biz-error">{t("biz.restart")}</p>}
+      {connection.error && <Notice tone="down">{t("biz.connectionError")}</Notice>}
+      {connection.login ? <a className="btn btn-lg btn-pri" href={connection.login} target="_top">{t("biz.connect")}</a> : <Notice tone="warn" role="alert">{t("biz.restart")}</Notice>}
       <p className="hint">{t("biz.connectScope", {host})}</p>
       <details className="biz-details"><summary>{t("biz.credentialsTitle")}</summary><p className="hint">{t("biz.credentialsDescription")}</p></details>
     </section>}
 
     {installed && connection?.connected && <>
       <div className="seg biz-tabs" role="tablist" aria-label={t("biz.title")}>
-        <button type="button" role="tab" aria-selected={tab === "teams"} aria-pressed={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
-        <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
-        <button type="button" role="tab" aria-selected={tab === "work"} aria-pressed={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
-        {showAccess && <button type="button" role="tab" aria-selected={tab === "access"} aria-pressed={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
-        {showSetup && <button type="button" role="tab" aria-selected={tab === "setup"} aria-pressed={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
+        <button type="button" role="tab" aria-selected={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
+        <button type="button" role="tab" aria-selected={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
+        <button type="button" role="tab" aria-selected={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
+        {showAccess && <button type="button" role="tab" aria-selected={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
+        {showSetup && <button type="button" role="tab" aria-selected={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
       </div>
+      <div className="biz-panel" role="tabpanel">
       {tab === "setup" && showSetup ? <Setup access={managed?.connected ? access ?? null : null} /> : tab === "access" && showAccess && access ? <Access access={access} /> : tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
         : tab === "business" ? <Business onContext={setContext} /> : <Work />}
       {tab === "teams" && connection.method === "oauth" && <Mail />}
-      {connection.method === "token" && <aside className="card biz-partner">
+      </div>
+      {connection.method === "token" && <aside className="card biz-partner" aria-label={t("biz.partnerTitle")}>
         <span className="avatar" aria-hidden="true">B</span>
         <div className="grow"><strong>{t("biz.partnerTitle")}</strong><p className="hint">{t(bizBot ? "biz.partnerReady" : "biz.partnerPending")}</p></div>
         {bizBot && <External href={s.project.data?.urls.omb ?? "#/bots"}>{t("biz.partnerOpen")}</External>}
