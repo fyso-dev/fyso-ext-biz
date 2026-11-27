@@ -206,7 +206,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     // Biz also answers `frozen` to someone who never had access: that is "no access yet", not a revocation.
     if (report.frozen) throw Error(readState(env).version ? 'frozen' : 'no_access');
     if (!report.capabilities.includes('app:panel') && !report.admin) throw Error('access_required');
-    if (register && report.setup) await access.registerRecipient(bearer, ageKey());
+    // Even before any setup exists: a publisher needs its own key registered before its first publish.
+    if (register) await access.registerRecipient(bearer, ageKey());
     const plan = planFor(report), state = readState(env);
     const removals = removalsOf({report, local: inspect(root, {yaml}), setup: setupNames(state, plan), catalog});
     const result = {setup: report.setup, admin: report.admin, upToDate: plan ? plan.up_to_date === true : true, plan, removals,
@@ -305,6 +306,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     const bearer = await token();
     const report = await readReport(bearer);
     if (!report.admin) throw Error('admin_required');
+    await access.registerRecipient(bearer, ageKey());
     const output = mise('run', 'dist:publish');
     await afterPublish(bearer);
     return {output: String(output).trim().split('\n').slice(-5).join('\n')};
@@ -398,6 +400,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       try {
         const recipients = await access.recipients(bearer);
         if ((report.recipientsPending || 0) > 0 || recipients.etag !== readState(env).recipientsEtag) {
+          // The publisher's own key counts as pending until registered: register it, or every run would publish.
+          await access.registerRecipient(bearer, ageKey());
           mise('run', 'dist:publish');
           await afterPublish(bearer);
           report = await readReport(bearer);

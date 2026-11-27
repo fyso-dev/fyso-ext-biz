@@ -284,3 +284,21 @@ test('snapshot: a project that never started commits only; a started one takes t
   await started.s.apply({digest: (await started.s.preview()).digest});
   assert.ok(started.calls.includes('mise run snapshot'));
 });
+
+test('publish: the admin registers its own key before the first publish (Biz has no setup and no recipients yet)', async () => {
+  const h = harness({reports: report({admin: true, setup: undefined, etag: 'e0'}), plan: PLAN()});
+  await h.s.publish();
+  assert.deepEqual(h.state.registered, [KEY]);
+  const order = h.calls.map(c => c.match(/dist:key|dist:publish/)?.[0]).filter(Boolean);
+  assert.deepEqual(order, ['dist:key', 'dist:publish'], 'the key is known to Biz before dist:publish asks for recipients');
+  await assert.rejects(harness({plan: PLAN()}).s.publish(), {message: 'admin_required'});
+});
+
+test('sync: an admin whose own key was pending registers it before republishing', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN(), recipients: {recipients: [], etag: 'r2'}});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.registered.length = 0;
+  h.state.current = report({admin: true, recipientsPending: 1});
+  assert.equal((await h.s.sync()).status, 'published');
+  assert.deepEqual(h.state.registered, [KEY]);
+});
