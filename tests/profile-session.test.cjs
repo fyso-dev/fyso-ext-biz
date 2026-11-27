@@ -125,3 +125,24 @@ test('renders a same-origin sign-in form in the browser language', async () => {
   assert.match(response.body, /method="post" action="\/api\/ext\/biz\/profile\/login"/);
   assert.match(response.headers['Content-Security-Policy'], /form-action 'self'/);
 });
+
+test('the access report flags an old grant that must reconnect, so the panel does not show it as having no departments', async () => {
+  const profiles = profileSessions({
+    env, now: () => 1000,
+    auth: {
+      async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s&code_challenge=c'}; },
+      async finishProfile() { return {accessToken: 'old-grant', expiresAt: 7000}; },
+    },
+    access: {
+      async identity() { return {subject: 'person-1'}; },
+      async can() { return false; },
+      async report() { return {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true}; },
+    },
+  });
+  const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
+  const cookie = login.headers['Set-Cookie'].split(';')[0];
+  const connected = await invoke(profiles, request('/profile/callback?state=s&code=x', 'ana', {cookie}));
+  const session = connected.headers['Set-Cookie'][1].split(';')[0];
+  const report = await invoke(profiles, request('/profile/access', 'ana', {cookie: session}));
+  assert.deepEqual(JSON.parse(report.body), {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true});
+});

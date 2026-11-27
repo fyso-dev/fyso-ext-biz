@@ -34,4 +34,5 @@ export type BotsPlan = {plan:string[]; created:number; changed:number; deleted:n
 export type BizAccessDepartment = {id:string; name:string; role:{id:string|null; name:string|null; custom:boolean; levels:Record<string,number>}|null; teams:{id:string; name:string}[]};
 /** The person's framework freedom: a preset and the level (0-2) of each setting. */
 export type BizAccessPolicy = {preset:"cuidado"|"equilibrado"|"libre"|"personalizado"; extensions:number; mcp_servers:number; bots:number; read:number; write:number; shell:number; publish:number; ai:number};
-export type BizAccess = {admin:boolean; departments:BizAccessDepartment[]; policy:BizAccessPolicy|null};
+/** `reauthorizeRequired`: Biz cannot recover this old grant's identity, so the person must reconnect Fyso Biz. */
+export type BizAccess = {admin:boolean; departments:BizAccessDepartment[]; policy:BizAccessPolicy|null; reauthorizeRequired?:boolean};

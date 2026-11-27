@@ -219,6 +219,8 @@
     "tabAccess": "Tus departamentos"
   },
   "access": {
+    "reauthorize": "Tu conexión con Fyso Biz es anterior a los departamentos y no podemos saber quién sos. Volvé a conectar Fyso Biz para ver tus departamentos; mientras tanto no se cambia nada de tus equipos.",
+    "reconnect": "Volver a conectar Fyso Biz",
     "departmentsTitle": "Tus departamentos",
     "departmentsIntro": "Los mismos que tenés en Fyso Biz. Si cambian allá, se actualizan acá.",
     "admin": "Sos administrador de la organización: tenés acceso completo.",

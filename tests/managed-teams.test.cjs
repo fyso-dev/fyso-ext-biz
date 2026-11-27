@@ -247,3 +247,40 @@ test('departments of another organization are refused', async () => {
   await assert.rejects(s.run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}}), {message: 'organization_mismatch'});
   assert.equal(s.ui.calls.length, 0);
 });
+
+test('by department, a grant Biz asks to reauthorize skips the sync without touching anything', async () => {
+  const s = setup({tools: ['departamentos_framework', 'listar_equipos', 'exportar_equipo']});
+  const env = {FYSO_BIZ_ACCESS_ORGANIZATION: ORG};
+  await s.run({env});
+  const before = {head: s.head(), teams: teamFile(s.root), state: JSON.stringify(sync.readState(s.root)), calls: s.mcp.calls.length, helper: s.h.calls.length, ui: s.ui.calls.length};
+  const access = {report: async token => { assert.equal(token, 'grant'); return {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true}; }};
+  const result = await s.run({env, access, credential: 'grant'});
+  assert.deepEqual(result, {managed: true, skipped: 'reauthorize_required', project: null, departments: [], teams: []});
+  assert.equal(s.head(), before.head);
+  assert.equal(teamFile(s.root), before.teams);
+  assert.equal(JSON.stringify(sync.readState(s.root)), before.state);
+  assert.equal(s.mcp.calls.length, before.calls);
+  assert.equal(s.h.calls.length, before.helper);
+  assert.equal(s.ui.calls.length, before.ui);
+});
+
+test('by department, an access report that does not ask to reauthorize (or cannot be read) does not block the sync', async () => {
+  const env = {FYSO_BIZ_ACCESS_ORGANIZATION: ORG};
+  const tools = ['departamentos_framework', 'listar_equipos', 'exportar_equipo'];
+  for (const access of [
+    {report: async () => ({capabilities: ['app:panel'], admin: false, departments: [], policy: null, reauthorizeRequired: false})},
+    {report: async () => { throw Error('biz_access_unavailable'); }},
+  ]) {
+    const s = setup({tools});
+    const result = await s.run({env, access, credential: 'grant'});
+    assert.equal(result.managed, true);
+    assert.equal(result.skipped, undefined);
+    assert.deepEqual(result.teams.map(t => t.equipoId), ['e1', 'e2']);
+  }
+});
+
+test('the legacy project path never asks for the access report', async () => {
+  const s = setup();
+  const access = {report: async () => assert.fail('legacy path')};
+  assert.equal((await s.run({access, credential: 'grant'})).managed, true);
+});

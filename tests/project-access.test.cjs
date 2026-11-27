@@ -76,9 +76,28 @@ test('the report carries departments, admin and policy, and tolerates their abse
     role: {id: 'lider', name: 'Líder', custom: false, levels: {objetivos: 2}}, teams: [{id: 'e1', name: 'Prospección'}]}]);
   assert.deepEqual(report.policy, {preset: 'equilibrado', extensions: 1, mcp_servers: 1, bots: 1, read: 1, write: 1, shell: 1, publish: 0, ai: 1});
   const old = projectAccess({env, transport: async () => Response.json({capabilities: ['app:panel']})});
-  assert.deepEqual(await old.report('t'), {capabilities: ['app:panel'], admin: false, departments: [], policy: null});
+  assert.deepEqual(await old.report('t'), {capabilities: ['app:panel'], admin: false, departments: [], policy: null, reauthorizeRequired: false});
   assert.deepEqual(policy({preset: 'weird', ai: -1}).preset, 'personalizado');
   assert.deepEqual(departments('x'), []);
   const bad = projectAccess({env, transport: async () => Response.json({capabilities: [1], departments: []})});
   await assert.rejects(bad.report('t'), /invalid_biz_access_decision/);
+});
+
+test('an old grant whose identity Biz cannot recover is reported as reauthorize_required, not as no departments', async () => {
+  const access = projectAccess({env, transport: async () => Response.json({capabilities: [], reauthorize_required: true})});
+  assert.deepEqual(await access.report('t'), {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true});
+  const decision = projectAccess({env, transport: async () => Response.json({allowed: false, reauthorize_required: true})});
+  assert.equal(await decision.can('t', 'app:panel'), false);
+  // Only an explicit true counts.
+  const loose = projectAccess({env, transport: async () => Response.json({capabilities: [], reauthorize_required: 'yes'})});
+  assert.equal((await loose.report('t')).reauthorizeRequired, false);
+});
+
+test('an administrator reports the libre policy at its maximum; a person without a stored policy reports equilibrado', async () => {
+  const admin = projectAccess({env, transport: async () => Response.json({capabilities: ['app:panel', 'framework:shell'], admin: true, departments: [],
+    policy: {preset: 'libre', extensions: 2, mcp_servers: 2, bots: 1, read: 1, write: 2, shell: 2, publish: 1, ai: 2}})});
+  assert.deepEqual((await admin.report('t')).policy, {preset: 'libre', extensions: 2, mcp_servers: 2, bots: 1, read: 1, write: 2, shell: 2, publish: 1, ai: 2});
+  const person = projectAccess({env, transport: async () => Response.json({capabilities: ['app:panel'], admin: false, departments: [],
+    policy: {preset: 'equilibrado', extensions: 1, mcp_servers: 1, bots: 1, read: 1, write: 1, shell: 1, publish: 0, ai: 1}})});
+  assert.equal((await person.report('t')).policy.preset, 'equilibrado');
 });

@@ -17,7 +17,7 @@ export function useBizAccess():BizAccess|null|undefined {
     fetch("/api/panel-access", {cache:"no-store", signal:controller.signal}).then(async response => {
       if (!response.ok || response.status === 204) return setAccess(null);
       const data = await response.json().catch(()=>null);
-      setAccess({admin:data?.admin === true, departments:Array.isArray(data?.departments) ? data.departments : [], policy:data?.policy ?? null});
+      setAccess({admin:data?.admin === true, departments:Array.isArray(data?.departments) ? data.departments : [], policy:data?.policy ?? null, reauthorizeRequired:data?.reauthorizeRequired === true});
     }).catch(()=>{ if (!controller.signal.aborted) setAccess(null); });
     return ()=>controller.abort();
   }, []);
@@ -27,6 +27,12 @@ export function useBizAccess():BizAccess|null|undefined {
 export function Access({access}:{access:BizAccess}) {
   const {t} = useTranslation();
   const {departments, policy, admin} = access;
+  // An old grant: Biz cannot tell who this is. Not "no departments": ask to reconnect.
+  if (access.reauthorizeRequired) return <section className="card" aria-labelledby="biz-access-departments">
+    <h2 id="biz-access-departments">{t("access.departmentsTitle")}</h2>
+    <p className="banner banner-down" role="alert">{t("access.reauthorize")}</p>
+    <a className="btn btn-pri" href="/api/ext/biz/profile/sign-in">{t("access.reconnect")}</a>
+  </section>;
   return <>
     <section className="card" aria-labelledby="biz-access-departments">
       <h2 id="biz-access-departments">{t("access.departmentsTitle")}</h2>

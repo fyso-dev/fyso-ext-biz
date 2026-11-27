@@ -219,6 +219,8 @@
     "tabAccess": "Your departments"
   },
   "access": {
+    "reauthorize": "Your Fyso Biz connection predates departments and we cannot tell who you are. Reconnect Fyso Biz to see your departments; meanwhile nothing about your teams is changed.",
+    "reconnect": "Reconnect Fyso Biz",
     "departmentsTitle": "Your departments",
     "departmentsIntro": "The same ones you have in Fyso Biz. If they change there, they update here.",
     "admin": "You are an organization administrator: you have full access.",

@@ -35,7 +35,7 @@ function policy(value) {
  */
 async function reportOf(access, profileToken) {
   if (typeof access.report === 'function') return access.report(profileToken);
-  return {capabilities: await access.capabilities(profileToken), admin: false, departments: [], policy: null};
+  return {capabilities: await access.capabilities(profileToken), admin: false, departments: [], policy: null, reauthorizeRequired: false};
 }
 
 function projectAccess({env = process.env, transport = fetch} = {}) {
@@ -83,15 +83,18 @@ function projectAccess({env = process.env, transport = fetch} = {}) {
 
     /**
      * The access report: capabilities (required, fails closed) plus the optional `admin`,
-     * `departments` and `policy` of department-based access. A Biz that does not send them
-     * yields `admin: false`, `departments: []` and `policy: null`.
+     * `departments` and `policy` of department-based access, and `reauthorizeRequired`. A Biz that
+     * does not send them yields `admin: false`, `departments: []`, `policy: null` and `false`.
      */
     async report(profileToken) {
       const report = await get(query(), profileToken);
       if (!Array.isArray(report?.capabilities) ||
           report.capabilities.some(value => typeof value !== 'string')) throw Error('invalid_biz_access_decision');
+      // `reauthorize_required`: an old grant whose identity Biz cannot recover. It is not "no
+      // departments": the person must reconnect Fyso Biz.
       return {capabilities: report.capabilities, admin: report.admin === true,
-        departments: departments(report.departments), policy: policy(report.policy)};
+        departments: departments(report.departments), policy: policy(report.policy),
+        reauthorizeRequired: report.reauthorize_required === true};
     },
   };
 }

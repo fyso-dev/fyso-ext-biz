@@ -163,14 +163,15 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       case 'GET /profile/access': {
         const session = current(req);
         const report = session ? await reportOf(access, session.accessToken)
-          : {capabilities: [], admin: false, departments: [], policy: null};
+          : {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: false};
         const {capabilities} = report;
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
         const remoteCredentialPath = secure && capabilities.includes('app:mcp')
           ? '/api/ext/biz/profile/mcp-token' : undefined;
         // `departments`, `admin` and `policy` feed the panel's "Your departments" tab; they are display data only.
         res.end(JSON.stringify({capabilities, remoteCredentialPath, admin: report.admin,
-          departments: report.departments, policy: report.policy}));
+          departments: report.departments, policy: report.policy,
+          ...(report.reauthorizeRequired ? {reauthorizeRequired: true} : {})}));
         break;
       }
       case 'GET /profile/status':

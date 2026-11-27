@@ -81,8 +81,14 @@ async function localDigest(tpl, root, department) {
  * Deliver the project's teams. Returns `{managed: false}` when managed access is not
  * configured; otherwise the project and, per team, whether it was applied now.
  */
-async function deliver({mcp, root, env = process.env, tpl, helper, actions, git, yaml}) {
+async function deliver({mcp, root, env = process.env, tpl, helper, actions, git, yaml, access, credential}) {
   if (!configured(env)) return {managed: false};
+  // By department, a grant Biz cannot identify (old OAuth grant) would look like a person with no
+  // departments, and the sync would unflag their teams. Skip instead and change nothing; the panel
+  // tab asks the person to reconnect. An unreadable report does not block the sync.
+  if (access && credential && !env.FYSO_BIZ_ACCESS_PROJECT && await needsReauthorization(access, credential)) {
+    return {managed: true, skipped: 'reauthorize_required', project: null, departments: [], teams: []};
+  }
   helper ??= managedBots(root);
   tpl ??= sync.templates(root);
   actions ??= panelActions(root, env);
@@ -135,6 +141,11 @@ async function deliver({mcp, root, env = process.env, tpl, helper, actions, git,
   return {managed: true, project, departments: assigned, teams: results};
 }
 
+/** Whether Biz asks this credential to reconnect (`reauthorize_required`); any failure to read it is `false`. */
+async function needsReauthorization(access, credential) {
+  try { return (await access.report(credential)).reauthorizeRequired === true; } catch { return false; }
+}
+
 /** The pull is applied, as the panel's status() records it: the department matches the package. */
 async function settle({root, tpl, equipoId, git}) {
   const state = sync.readState(root), entry = recordById(state, equipoId);
@@ -162,7 +173,9 @@ if (require.main === module) (async () => {
   const biz = require('./biz.cjs');
   const credential = await biz.token();
   const mcp = biz.client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth: credential.oauth});
-  console.log(JSON.stringify(await deliver({mcp, root: process.cwd()})));
+  const result = await deliver({mcp, root: process.cwd(), access: require('./project-access.cjs').projectAccess(), credential: credential.token});
+  if (result.skipped) console.error('Fyso Biz: managed teams skipped: reconnect Fyso Biz (reauthorize_required)');
+  console.log(JSON.stringify(result));
 })().catch(error => {
   const code = ERRORS.includes(error.message) || sync.ERRORS.includes(error.message) ? error.message : 'connection_failed';
   console.error(`Fyso Biz: managed teams failed: ${code}${error.department ? ` (${error.department})` : ''}`);
