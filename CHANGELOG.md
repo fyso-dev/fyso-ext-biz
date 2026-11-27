@@ -6,7 +6,7 @@ Versions are the Git tags of this repository. Earlier releases are described in 
 
 - Access by department: `biz_access_project` is optional. `biz_access_organization` alone enables managed access (panel and MCP policy, template slots, feedback, managed-teams delivery); `project` is sent to Biz only when set. Installs that still set it work unchanged.
 - `GET /oauth/framework-access` is read for the new optional `admin`, `departments` and `policy`; a Biz without them behaves as before. `GET /api/panel-access` returns them too.
-- Managed teams come from `departamentos_framework` when Biz offers it, falling back to `proyectos_framework` (its errors only on that path).
+- Managed teams come from `departamentos_framework` when no project is set; with `biz_access_project` set the legacy `proyectos_framework` path is kept unchanged.
 - New panel tab **Your departments**: the person's departments with role, and their framework-freedom level.
 - With a policy present, MCP server management also requires `framework:mcp_servers:catalog`.
 - Template slot file names now depend on `biz_access_organization`.

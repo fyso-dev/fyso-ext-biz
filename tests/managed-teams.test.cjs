@@ -229,12 +229,17 @@ test('without a project the teams come from the person\'s departments, each once
   assert.ok(!s.mcp.calls.some(c => c[0] === 'proyectos_framework'));
 });
 
-test('a Biz without departamentos_framework falls back to the project, keeping its errors', async () => {
-  const s = setup();
+test('a configured project keeps the legacy path even when Biz offers departments', async () => {
+  const s = setup({tools: ['departamentos_framework', 'proyectos_framework', 'listar_equipos', 'exportar_equipo']});
   assert.equal((await s.run()).project.id, PROJECT);
   assert.deepEqual(s.mcp.calls[0], ['proyectos_framework', {proyecto_id: PROJECT}]);
-  await assert.rejects(setup().run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}}), {message: 'project_not_assigned'});
+  assert.ok(!s.mcp.calls.some(c => c[0] === 'departamentos_framework'));
   await assert.rejects(setup({organizacion: 'other'}).run(), {message: 'organization_mismatch'});
+  await assert.rejects(setup({proyectos: []}).run(), {message: 'project_not_assigned'});
+});
+
+test('without a project a Biz lacking departamentos_framework is unsupported', async () => {
+  await assert.rejects(setup().run({env: {FYSO_BIZ_ACCESS_ORGANIZATION: ORG}}), {message: 'managed_teams_not_supported'});
 });
 
 test('departments of another organization are refused', async () => {

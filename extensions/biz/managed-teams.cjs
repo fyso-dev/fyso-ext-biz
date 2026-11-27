@@ -1,8 +1,8 @@
 // Deliver the system Fyso Biz configured for this project (Biz-managed access). The
 // connection hook runs it when the install names a Biz organization
 // (`biz_access_organization`; `biz_access_project` is the optional legacy scope). Biz lists the
-// teams of the person's departments (`departamentos_framework`), or the project's teams
-// (`proyectos_framework`) on an older Biz; each team comes down through the normal department pull
+// teams of the person's departments (`departamentos_framework`), or, when `biz_access_project` is
+// set, the project's teams (`proyectos_framework`, legacy); each team comes down through the normal department pull
 // (teams-sync.cjs), its bots are recorded as managed by Biz through the framework's
 // `managed-bots.cjs`, and the proposed team file is applied through the panel's own
 // plan/apply (`panel-actions.sh`). Teams go one at a time so each apply is reviewed
@@ -88,9 +88,12 @@ async function deliver({mcp, root, env = process.env, tpl, helper, actions, git,
   actions ??= panelActions(root, env);
   await mcp.initialize();
   const tools = await mcp.tools();
-  // Departments are the source when Biz offers them; the project is the fallback (older Biz).
-  const byDepartment = tools.some(t => t.name === 'departamentos_framework');
-  if (!byDepartment && !tools.some(t => t.name === 'proyectos_framework')) throw Error('managed_teams_not_supported');
+  // A configured project keeps the legacy path (same teams and errors as before); without one,
+  // the person's departments are the source, so Biz must offer `departamentos_framework`.
+  const legacy = Boolean(env.FYSO_BIZ_ACCESS_PROJECT);
+  const byDepartment = !legacy;
+  const offered = tools.some(t => t.name === (legacy ? 'proyectos_framework' : 'departamentos_framework'));
+  if (!offered) throw Error('managed_teams_not_supported');
   const {project, departments: assigned, teams} = byDepartment ? await departmentTeams(mcp, env) : await assignedTeams(mcp, env);
   // Biz's current versions, to skip a team that is already applied.
   const versions = {};
