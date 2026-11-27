@@ -1,6 +1,10 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
+const {expandCapabilities, inventoryOf} = require('../extensions/biz/department-capabilities.cjs');
 
 const env = {
   FYSO_WEB_DOMAIN: 'project.test',
@@ -144,4 +148,124 @@ test('works with the organization alone and narrows connector management by the 
   assert.equal(await add(), 204);
   // Unconfigured stays open.
   assert.equal(await check(projectPolicy({env: {FYSO_WEB_DOMAIN: 'project.test'}, profiles: {}}), '/'), 204);
+});
+
+// Other hosts of the project (omb., dagu., docs., biz.): the profile cookie is host-only on the panel,
+// so the session comes from the gateway's Remote-User.
+function projectRoot() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'policy-hosts-'));
+  const write = (file, text) => { fs.mkdirSync(path.dirname(path.join(root, file)), {recursive: true}); fs.writeFileSync(path.join(root, file), text); };
+  write('framework/apps/omb.yaml', 'id: omb\nname: Chat\n');
+  write('framework/apps/dagu.yaml', 'id: dagu\nname: Automations\n');
+  write('extensions/silverbullet/app.yaml', 'id: silverbullet\nurl: http://docs.${FYSO_WEB_DOMAIN}:${FYSO_HTTP_PORT}\n');
+  write('extensions/hub/app.yaml', 'id: hub\nurl: "https://portal.example.com/"\n');
+  write('extensions/biz/app.yaml', 'id: biz\nurl: /#/extensions/biz/overview\n');
+  write('project/apps/crm/app.yaml', 'id: crm\nurl: "http://crm.${FYSO_WEB_DOMAIN}"\n');
+  write('project/apps/sneaky/app.yaml', 'id: sneaky\nurl: http://omb.${FYSO_WEB_DOMAIN}\n');
+  write('.copier-answers.ext-silverbullet.yml', '_commit: x\n');
+  return root;
+}
+
+function hostPolicy({report, session = {accessToken: 'person'}, users = []} = {}) {
+  const lookups = [];
+  const handler = projectPolicy({
+    env: {...env, FYSO_HTTP_PORT: '8080'}, root: projectRoot(),
+    profiles: {current: () => { throw Error('the cookie session is for the panel'); },
+      forUser: user => { lookups.push(user); return session; }},
+    access: {report: async () => (typeof report === 'function' ? report() : report)},
+  });
+  return {handler, lookups};
+}
+
+const departmentReport = levels => expandCapabilities({
+  capabilities: ['app:panel'], admin: levels === 'admin',
+  departments: levels === 'admin' ? [] : [{id: 'd', name: 'D', role: {id: 'r', name: 'R', levels}, teams: []}],
+  policy: null,
+}, {inventory: inventoryOf(projectRoot())});
+
+test('omb. and dagu.: an admin is allowed, a member without the app capability is not', async () => {
+  const admin = hostPolicy({report: departmentReport('admin')});
+  assert.equal(await check(admin.handler, '/', {host: 'omb.project.test'}), 204);
+  assert.equal(await check(admin.handler, '/api/chat', {host: 'omb.project.test', method: 'POST'}), 204);
+  assert.equal(await check(admin.handler, '/', {host: 'dagu.project.test'}), 204);
+  assert.deepEqual(admin.lookups.slice(0, 1), ['ana']);
+
+  const member = hostPolicy({report: departmentReport({objetivos: 0, agentes: 1, fuentes: 0})});
+  assert.equal(await check(member.handler, '/', {host: 'omb.project.test'}), 403);
+  assert.equal(await check(member.handler, '/', {host: 'dagu.project.test'}), 403);
+});
+
+test('app hosts need app:panel as well as the app capability, and wildcard grants count', async () => {
+  const noPanel = hostPolicy({report: {capabilities: ['app:omb'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(noPanel.handler, '/', {host: 'omb.project.test'}), 403);
+  const wildcard = hostPolicy({report: {capabilities: ['app:panel', 'app:*'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(wildcard.handler, '/', {host: 'omb.project.test'}), 204);
+  assert.equal(await check(wildcard.handler, '/', {host: 'docs.project.test'}), 204);
+});
+
+test('app hosts without a live profile session: 403, and a sign-in redirect to the panel for /', async () => {
+  const none = hostPolicy({session: null, report: departmentReport('admin')});
+  assert.equal(await check(none.handler, '/api/x', {host: 'omb.project.test'}), 403);
+  assert.equal(await check(none.handler, '/', {host: 'omb.project.test', method: 'POST'}), 403);
+  assert.equal(await check(none.handler, '/', {host: 'omb.project.test'}), 303);
+  const redirects = [];
+  const handler = projectPolicy({env: {...env, FYSO_HTTP_PORT: '8080'}, root: projectRoot(), profiles: {forUser: () => null}});
+  await handler({headers: {'remote-user': 'ana', 'x-fyso-policy-host': 'omb.project.test', 'x-fyso-policy-path': '/', 'x-forwarded-method': 'GET'}},
+    {writeHead: (status, headers) => { redirects.push([status, headers.Location]); return {end() {}}; }});
+  assert.deepEqual(redirects, [[303, 'http://panel.project.test:8080/api/ext/biz/profile/sign-in']]);
+});
+
+test('a frozen project allows reads on app hosts and refuses writes', async () => {
+  const frozen = hostPolicy({report: {capabilities: [], frozen: true, admin: false, departments: [], policy: null}});
+  assert.equal(await check(frozen.handler, '/', {host: 'omb.project.test'}), 204);
+  assert.equal(await check(frozen.handler, '/api/chat', {host: 'omb.project.test', method: 'POST'}), 403);
+  assert.equal(await check(frozen.handler, '/login', {host: 'biz.project.test'}), 403);
+});
+
+test('extension and project apps map their url host to app:<id>', async () => {
+  const admin = hostPolicy({report: {capabilities: ['app:panel', 'app:silverbullet'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(admin.handler, '/page', {host: 'docs.project.test'}), 204);
+  assert.equal(await check(admin.handler, '/', {host: 'crm.project.test'}), 403);
+  assert.equal(await check(admin.handler, '/', {host: 'portal.project.test'}), 403);
+  const crm = hostPolicy({report: {capabilities: ['app:panel', 'app:crm'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(crm.handler, '/', {host: 'crm.project.test'}), 204);
+  assert.equal(await check(crm.handler, '/', {host: 'docs.project.test'}), 403);
+  // An app file cannot take over a framework host.
+  const sneaky = hostPolicy({report: {capabilities: ['app:panel', 'app:sneaky'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(sneaky.handler, '/', {host: 'omb.project.test'}), 403);
+  // Members get the extension and project apps at agentes 1 (derived), not the framework ones.
+  const member = hostPolicy({report: departmentReport({objetivos: 0, agentes: 1, fuentes: 0})});
+  assert.equal(await check(member.handler, '/', {host: 'docs.project.test'}), 204);
+});
+
+test('biz. serves only the agent login routes, behind the Biz page', async () => {
+  const person = hostPolicy({report: {capabilities: ['app:panel', 'page:extension:biz'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(person.handler, '/login', {host: 'biz.project.test'}), 204);
+  assert.equal(await check(person.handler, '/callback', {host: 'biz.project.test'}), 204);
+  assert.equal(await check(person.handler, '/login', {host: 'biz.project.test', method: 'POST'}), 403);
+  assert.equal(await check(person.handler, '/health', {host: 'biz.project.test'}), 403);
+  assert.equal(await check(person.handler, '/', {host: 'biz.project.test'}), 403);
+  const without = hostPolicy({report: {capabilities: ['app:panel'], admin: false, departments: [], policy: null}});
+  assert.equal(await check(without.handler, '/login', {host: 'biz.project.test'}), 403);
+});
+
+test('unknown hosts, foreign domains and unsafe paths are refused', async () => {
+  const admin = hostPolicy({report: departmentReport('admin')});
+  assert.equal(await check(admin.handler, '/', {host: 'nope.project.test'}), 403);
+  assert.equal(await check(admin.handler, '/', {host: 'omb.evil.test'}), 403);
+  assert.equal(await check(admin.handler, '/', {host: 'a.omb.project.test'}), 403);
+  assert.equal(await check(admin.handler, '/', {host: 'project.test'}), 403);
+  assert.equal(await check(admin.handler, '/', {host: 'auth.project.test'}), 403);
+  assert.equal(await check(admin.handler, '/a/../b', {host: 'omb.project.test'}), 403);
+  assert.equal(await check(admin.handler, '/a%2fb', {host: 'omb.project.test'}), 403);
+  assert.equal(await check(admin.handler, '//x', {host: 'omb.project.test'}), 403);
+  const unavailable = hostPolicy({report: () => { throw Error('down'); }});
+  assert.equal(await check(unavailable.handler, '/', {host: 'omb.project.test'}), 503);
+});
+
+test('panel behavior is unchanged: it still uses the cookie session', async () => {
+  const handler = projectPolicy({env, profiles: {current: () => ({accessToken: 'p'}), forUser: () => { throw Error('panel does not look up by user'); }},
+    access: {capabilities: async () => ['app:panel', 'action:bots:list']}});
+  assert.equal(await check(handler, '/api/omb/bots'), 204);
+  assert.equal(await check(handler, '/api/omb/bots', {method: 'POST'}), 403);
 });
