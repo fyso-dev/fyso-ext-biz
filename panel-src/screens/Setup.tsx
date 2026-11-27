@@ -4,7 +4,7 @@ import type { BizAccess } from "../api/biz";
 
 type Removals = {extensions:{id:string}[]; mcp_servers:{id:string}[]; bots:{name:string}[]; teams:{department:string}[]};
 type Preview = {setup:{version:string}|null; upToDate:boolean; removals:Removals; replaced:{path:string}[]; removalCount:number; digest:string; error?:string};
-type SetupStatus = {connected:boolean; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
+type SetupStatus = {connected:boolean; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
 
 const post = async (op:string, body?:object) => {
   const response = await fetch(`/api/ext/biz/profile/setup/${op}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body ?? {})});
@@ -22,14 +22,16 @@ export function Setup({access}:{access:BizAccess}) {
   const [preview, setPreview] = useState<Preview>();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ok:boolean; text:string}>();
+  const [stale, setStale] = useState(false);
+  const [conflicts, setConflicts] = useState<string[]>([]);
   const load = async () => { const r = await fetch("/api/ext/biz/profile/setup/status", {cache:"no-store"}).then(x=>x.ok ? x.json() : null).catch(()=>null); setStatus(r ?? undefined); };
   useEffect(()=>{ void load(); }, []);
   const fail = (code?:string) => setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")})});
   const run = async (op:string, body?:object, done?:(r:any)=>void) => {
-    setBusy(true); setMessage(undefined);
+    setBusy(true); setMessage(undefined); setStale(false); setConflicts([]);
     const result = await post(op, body);
     setBusy(false);
-    if (result.error) fail(result.error); else done?.(result);
+    if (result.error) { fail(result.error); setStale(result.error === "stale_base"); setConflicts(Array.isArray(result.files) ? result.files : []); } else done?.(result);
     await load();
   };
   const list = (r:Removals) => [...r.extensions.map(e=>t("setup.removeExtension", {name:e.id})), ...r.mcp_servers.map(e=>t("setup.removeMcp", {name:e.id})),
@@ -62,6 +64,9 @@ export function Setup({access}:{access:BizAccess}) {
         <button type="button" className="btn btn-soft" disabled={busy} onClick={()=>void run("cancel", undefined, ()=>setPreview(undefined))}>{t("setup.cancel")}</button>
       </div>
     </div>}
+    {stale && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("merge", undefined, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.mergeAndPublish")}</button></div>}
+    {conflicts.length > 0 && <ul aria-label={t("setup.conflicts")}>{conflicts.map(f=><li key={f}><code>{f}</code></li>)}</ul>}
+    {status.publishPaused && <p className="banner banner-warn" role="status">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</p>}
     {status.connected && <div className="connector-actions">
       {status.admin && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("publish", undefined, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.publish")}</button>}
       <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void run("disconnect")}>{t("setup.disconnect")}</button>

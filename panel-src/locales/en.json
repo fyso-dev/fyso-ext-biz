@@ -333,7 +333,12 @@
       "preview_changed": "The plan changed; review it again.",
       "busy": "Another change is in progress.",
       "not_renewable": "Biz did not issue a renewable grant; reconnect.",
-      "dist_failed": "The distribution could not be applied."
-    }
+      "dist_failed": "The distribution could not be applied.",
+      "stale_base": "Another administrator published a newer setup. Update and merge it, then publish again.",
+      "merge_conflict": "The latest setup conflicts with your local edits in the files below. Nothing was changed."
+    },
+    "mergeAndPublish": "Update and merge",
+    "conflicts": "Conflicting files",
+    "publishPaused": "Automatic publishing is paused: the latest setup conflicts with your edits in {{files}}. Nothing was changed; resolve them and publish again."
   }
 }

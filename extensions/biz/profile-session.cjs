@@ -32,9 +32,9 @@ function cookieValue(req, name) {
     .find(part => part.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-const SETUP_OPS = new Map([['status', 'GET'], ['preview', 'POST'], ['confirm', 'POST'], ['cancel', 'POST'], ['publish', 'POST'], ['disconnect', 'POST']]);
+const SETUP_OPS = new Map([['status', 'GET'], ['preview', 'POST'], ['confirm', 'POST'], ['cancel', 'POST'], ['publish', 'POST'], ['merge', 'POST'], ['disconnect', 'POST']]);
 // Statuses of the codes the setup answers with; anything else is an unexpected failure.
-const SETUP_STATUS = {no_access: 403, not_connected: 409, reauthorize_required: 409, frozen: 403, access_required: 403, admin_required: 403, preview_changed: 409,
+const SETUP_STATUS = {stale_base: 409, merge_conflict: 409, no_access: 403, not_connected: 409, reauthorize_required: 409, frozen: 403, access_required: 403, admin_required: 403, preview_changed: 409,
   busy: 409, not_renewable: 409, dist_failed: 502, key_unavailable: 502};
 
 function profileSessions({env = process.env, auth = store({env}), access = projectAccess({env}), now = Date.now, managedSetup} = {}) {
@@ -143,10 +143,11 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''}));
       }
       if (op === 'publish') return json(200, await managedSetup.publish());
+      if (op === 'merge') return json(200, await managedSetup.mergeAndPublish());
       return json(200, managedSetup.disconnect());
     } catch (error) {
       if (op === 'preview' && !managedSetup.status().connected) auth.profileLogout();
-      json(SETUP_STATUS[error.message] || 502, {error: SETUP_STATUS[error.message] ? error.message : 'setup_failed'});
+      json(SETUP_STATUS[error.message] || 502, {error: SETUP_STATUS[error.message] ? error.message : 'setup_failed', ...(error.files ? {files: error.files} : {})});
     }
   }
 

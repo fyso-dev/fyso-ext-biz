@@ -313,21 +313,48 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return {connected: false};
   }
 
+  /** `dist:publish`: exit 3 (`stale_base`) means Biz has a newer version than this project was built on. */
+  function distPublish() {
+    try { return mise('run', 'dist:publish'); } catch (error) {
+      if (error.status === 3 || /stale_base/.test(`${error.message}${error.stderr || ''}`)) throw Object.assign(Error('stale_base'), {cause: error});
+      throw error;
+    }
+  }
+
+  /** `dist:update` on a publisher merges; exit 4 is a conflict that left the project unchanged. */
+  function distMerge() {
+    try { return mise('run', 'dist:update'); } catch (error) {
+      if (error.status !== 4) throw error;
+      let files = [];
+      try { files = names(JSON.parse(fs.readFileSync(path.join(env.FYSO_DATA || path.join(root, '.data'), 'dist', 'merge-conflicts.json'), 'utf8')).files); } catch { /* unreadable list */ }
+      throw Object.assign(Error('merge_conflict'), {files});
+    }
+  }
+
   async function publish() {
     const bearer = await token();
     const report = await readReport(bearer);
     if (!report.admin) throw Error('admin_required');
     await access.registerRecipient(bearer, ageKey());
-    const output = mise('run', 'dist:publish');
+    const output = distPublish();
     await afterPublish(bearer);
     return {output: String(output).trim().split('\n').slice(-5).join('\n')};
+  }
+
+  /** "Update and merge": bring the latest version into this publisher's project (never discarding its edits), then publish again. */
+  async function mergeAndPublish() {
+    const bearer = await token();
+    if (!(await readReport(bearer)).admin) throw Error('admin_required');
+    snapshot();
+    distMerge();
+    return publish();
   }
 
   /** The publisher's own project already is the setup: remember it so the next sync does not replace its files. */
   async function afterPublish(bearer) {
     const report = await readReport(bearer);
     const recipients = await access.recipients(bearer);
-    save({selfPublished: report.setup?.version ?? null, etag: report.etag, version: report.setup?.version ?? null, recipientsEtag: recipients.etag});
+    save({publishPaused: null, selfPublished: report.setup?.version ?? null, etag: report.etag, version: report.setup?.version ?? null, recipientsEtag: recipients.etag});
   }
 
   /** Names of the secrets the distribution delivered: the keys of its (encrypted) file, plus what earlier plans listed. */
@@ -415,16 +442,27 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     if (report.admin) {
       try {
         const recipients = await access.recipients(bearer);
-        if ((report.recipientsPending || 0) > 0 || recipients.etag !== readState(env).recipientsEtag) {
+        if (!readState(env).publishPaused && ((report.recipientsPending || 0) > 0 || recipients.etag !== readState(env).recipientsEtag)) {
           // The publisher's own key counts as pending until registered: register it, or every run would publish.
           await access.registerRecipient(bearer, ageKey());
-          mise('run', 'dist:publish');
+          try { distPublish(); } catch (error) {
+            if (error.message !== 'stale_base') throw error;
+            // Biz has a newer version: merge it once (the admin's edits are kept), then publish again.
+            snapshot();
+            distMerge();
+            distPublish();
+          }
           await afterPublish(bearer);
           report = await readReport(bearer);
           notify('published', 'Recipients changed: the setup was published again');
           result.status = 'published';
         }
-      } catch (error) { notify('publish_failed', `Could not publish: ${String(error.message).slice(0, 100)}`); }
+      } catch (error) {
+        if (error.message === 'merge_conflict') {
+          save({publishPaused: {files: error.files, at: new Date(now()).toISOString()}});
+          notify('merge_conflict', `Automatic publishing paused: the latest setup conflicts with local edits in ${error.files.join(', ') || 'some files'}. Nothing was changed; resolve them and publish from the panel.`);
+        } else notify('publish_failed', `Could not publish: ${String(error.message).slice(0, 100)}`);
+      }
     }
     const latest = readState(env);
     if (latest.etag === report.etag) {
@@ -446,7 +484,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function status() {
     const state = readState(env), grant = store.profileStatus();
     return {connected: Boolean(state.connected) && grant.connected, grant: grant.connected, frozen: state.frozen === true, paused: state.paused || null,
-      version: state.version ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
+      publishPaused: state.publishPaused || null, version: state.version ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
   // One change at a time: the sync workflow and the panel must not interleave.
@@ -461,7 +499,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     try { return await fn(...args); } finally { fs.rmSync(lock, {recursive: true, force: true}); }
   };
 
-  return {preview, apply: exclusive(apply), disconnect, publish: exclusive(publish), sync: exclusive(sync), status, freeze, readReport, removalsOf};
+  return {preview, apply: exclusive(apply), disconnect, publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf};
 }
 
 module.exports = {setup, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};

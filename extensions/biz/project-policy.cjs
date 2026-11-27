@@ -12,7 +12,7 @@ const profileRoutes = new Map([
   ['/api/ext/biz/profile/mcp-token', 'POST'],
   // Managed setup: the profile session is the credential; Biz decides what it may do.
   ['/api/ext/biz/profile/setup/status', 'GET'],
-  ...['preview', 'confirm', 'cancel', 'publish', 'disconnect'].map(op => [`/api/ext/biz/profile/setup/${op}`, 'POST']),
+  ...['preview', 'confirm', 'cancel', 'publish', 'merge', 'disconnect'].map(op => [`/api/ext/biz/profile/setup/${op}`, 'POST']),
 ]);
 const shell = /^\/(?:index\.html|assets\/[a-z0-9_./-]+|favicon\.[a-z0-9]+)?$/i;
 const read = new Set(['GET', 'HEAD']);

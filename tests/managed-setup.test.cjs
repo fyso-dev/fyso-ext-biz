@@ -44,8 +44,10 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
     profileStatus: () => ({connected: state.grant}),
     profileLogout: () => { state.grant = false; },
   };
+  const exits = {};
   const run = (cmd, args) => {
     calls.push([cmd, ...args].join(' '));
+    for (const [needle, queue] of Object.entries(exits)) if (args.includes(needle) && queue.length) { const code = queue.shift(); if (code) throw Object.assign(Error(`exit ${code}`), {status: code}); }
     if (cmd === 'sops' && args[0] === 'decrypt' && sopsKeys) return JSON.stringify(Object.fromEntries(sopsKeys.map(k => [k, 'v'])));
     if (cmd === 'mise' && args.includes('dist:key')) return `${KEY}\n`;
     if (cmd === 'mise' && args.includes('dist:plan')) return `log line\n${JSON.stringify(plan)}`;
@@ -55,7 +57,7 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
     return '';
   };
   const s = setup({env: p.env, root: p.root, access, store, run, deliverTeams: async () => teams, now: () => 1000});
-  return {...p, s, calls, state, access, store};
+  return {...p, s, calls, state, access, store, exits};
 }
 
 const PLAN = () => ({mode: 'update', current: 'v1', version: 'v2', up_to_date: false, files: {added: [], replaced: [{path: 'a', local_edits: ['committed']}, {path: 'b', local_edits: []}], removed: []},
@@ -398,4 +400,47 @@ test('freeze: a secret that is already gone is not pending (second freeze after 
   assert.deepEqual([frozen.removedSecrets, frozen.pendingSecrets], [2, 0]);
   assert.deepEqual(h.calls.filter(c => c.startsWith('sops unset')).map(c => c.split(' ').slice(-1)[0]), ['["OTHER"]']);
   assert.deepEqual(readState(h.env).pendingSecrets, []);
+});
+
+test('panel publish: stale_base asks for "update and merge", which merges and publishes again; a conflict stops', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  h.exits['dist:publish'] = [3];
+  await assert.rejects(h.s.publish(), {message: 'stale_base'});
+  assert.ok(!h.calls.some(c => c.includes('dist:update')));
+  // Update and merge: snapshot, merge, publish again.
+  h.calls.length = 0;
+  await h.s.mergeAndPublish();
+  assert.deepEqual(h.calls.map(c => c.match(/snapshot|dist:update|dist:publish/)?.[0]).filter(Boolean), ['snapshot', 'dist:update', 'dist:publish']);
+  // Conflict (exit 4): stop before publishing, with the files the framework listed.
+  fs.mkdirSync(path.join(h.env.FYSO_DATA, 'dist'), {recursive: true});
+  fs.writeFileSync(path.join(h.env.FYSO_DATA, 'dist/merge-conflicts.json'), JSON.stringify({base: 'v2', latest: 'v3', files: ['project/wiki/a.md']}));
+  h.exits['dist:update'] = [4];
+  h.calls.length = 0;
+  await assert.rejects(h.s.mergeAndPublish(), error => error.message === 'merge_conflict' && error.files[0] === 'project/wiki/a.md');
+  assert.ok(!h.calls.some(c => c.includes('dist:publish')));
+});
+
+test('sync: admin auto-republish merges once on stale_base and retries; a conflict pauses it with a notice', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN(), recipients: {recipients: [], etag: 'r2'}});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({admin: true, recipientsPending: 1});
+  h.exits['dist:publish'] = [3, 0];
+  h.calls.length = 0;
+  assert.equal((await h.s.sync()).status, 'published');
+  assert.deepEqual(h.calls.map(c => c.match(/dist:update|dist:publish/)?.[0]).filter(Boolean), ['dist:publish', 'dist:update', 'dist:publish']);
+  // Conflict: paused, nothing else done, and the next runs do not try again.
+  fs.mkdirSync(path.join(h.env.FYSO_DATA, 'dist'), {recursive: true});
+  fs.writeFileSync(path.join(h.env.FYSO_DATA, 'dist/merge-conflicts.json'), JSON.stringify({files: ['x.md', 'y.md']}));
+  h.state.current = report({admin: true, recipientsPending: 2, etag: 'e1'});
+  require('../extensions/biz/managed-setup.cjs').writeState(h.env, {...readState(h.env), recipientsEtag: 'old'});
+  h.exits['dist:publish'] = [3]; h.exits['dist:update'] = [4];
+  h.calls.length = 0;
+  await h.s.sync();
+  assert.deepEqual(readState(h.env).publishPaused.files, ['x.md', 'y.md']);
+  assert.equal(readState(h.env).notices.at(-1).kind, 'merge_conflict');
+  assert.match(readState(h.env).notices.at(-1).text, /x\.md, y\.md/);
+  h.calls.length = 0;
+  await h.s.sync();
+  assert.ok(!h.calls.some(c => c.includes('dist:publish') || c.includes('dist:update')));
+  assert.deepEqual(h.s.status().publishPaused.files, ['x.md', 'y.md']);
 });
