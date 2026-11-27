@@ -177,3 +177,29 @@ test('the panel shows Setup with a Connect action when managed access has no pro
   assert.match(read('Access.tsx'), /action="\/api\/ext\/biz\/profile\/login"/);
   assert.match(read('Setup.tsx'), /response\?\.status === 403/);
 });
+
+// The panel's first Connect saves the profile grant before the preview. A failed preview drops it only when
+// the grant is the problem.
+async function failedPreview(error) {
+  let logouts = 0;
+  const auth = {saveProfile() {}};
+  const managedSetup = {status: () => ({connected: false}), async preview() { throw error; }};
+  // Seed a session through the real login/callback path.
+  const authLogin = {...auth, async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
+    async finishProfile() { return {accessToken: 't', expiresAt: Date.now() + 3600000}; }};
+  const p = profileSessions({env, auth: authLogin, managedSetup, access: {async identity() { return {subject: 'x'}; }}});
+  const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
+  const binding = login.headers['Set-Cookie'].split(';')[0];
+  const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: binding}));
+  const session = cb.headers['Set-Cookie'][1].split(';')[0];
+  authLogin.profileLogout = () => { logouts++; };
+  const out = await invoke(p, request('/profile/setup/preview', 'ana', {method: 'POST', cookie: session}));
+  return {logouts, status: out.status};
+}
+
+test('a failed preview keeps the grant when Biz is unavailable or errors, and drops it when the grant is rejected', async () => {
+  assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 503}))).logouts, 0);
+  assert.equal((await failedPreview(Error('dist_failed'))).logouts, 0);
+  assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 401}))).logouts, 1);
+  assert.equal((await failedPreview(Error('reauthorize_required'))).logouts, 1);
+});
