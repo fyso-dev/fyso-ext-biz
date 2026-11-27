@@ -2,7 +2,7 @@
 
 Versions are the Git tags of this repository. Earlier releases are described in their tags and pull requests.
 
-## Unreleased
+## v0.6.0
 
 - Access by department: `biz_access_project` is optional. `biz_access_organization` alone enables managed access (panel and MCP policy, template slots, feedback, managed-teams delivery); `project` is sent to Biz only when set. Installs that still set it work unchanged.
 - `GET /oauth/framework-access` is read for the new optional `admin`, `departments` and `policy`; a Biz without them behaves as before. `GET /api/panel-access` returns them too.
