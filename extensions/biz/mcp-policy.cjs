@@ -1,6 +1,9 @@
-const {projectAccess} = require('./project-access.cjs');
+const {projectAccess, reportOf} = require('./project-access.cjs');
+const {isFrozen} = require('./managed-setup.cjs');
 
 const rpc = new Set(['initialize', 'ping', 'notifications/initialized', 'tools/list']);
+// Biz's read tools; every other tool changes something. `cuidado` and a frozen project may only read.
+const READ_TOOL = /^(?:listar|ver|buscar|obtener|explicar|vision|contexto$|solicitudes_disponibles$|como_trabajar)/;
 
 function mcpPolicy({env = process.env, profiles, access = projectAccess({env})}) {
   return async function check(req, res) {
@@ -21,10 +24,13 @@ function mcpPolicy({env = process.env, profiles, access = projectAccess({env})})
       if (!session) return reply(403);
       if (method === 'authenticate') return reply(204);
 
-      const granted = new Set(await access.capabilities(session.accessToken));
+      const report = await reportOf(access, session.accessToken);
+      const granted = new Set(report.capabilities);
       if (!granted.has('app:mcp')) return reply(403);
       if (rpc.has(method)) return reply(204);
       if (method !== 'tools/call' || typeof tool !== 'string' || !/^[a-z0-9_]{1,100}$/.test(tool)) return reply(403);
+      const readOnly = report.frozen === true || isFrozen(env) || report.policy?.preset === 'cuidado';
+      if (readOnly && !READ_TOOL.test(tool)) return reply(403);
       return reply(granted.has(`mcp:tool:${tool}`) ? 204 : 403);
     } catch {
       return reply(503);

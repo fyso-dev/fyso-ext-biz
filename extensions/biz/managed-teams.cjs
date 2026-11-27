@@ -83,12 +83,17 @@ async function localDigest(tpl, root, department) {
  */
 async function deliver({mcp, root, env = process.env, tpl, helper, actions, git, yaml, access, credential}) {
   if (!configured(env)) return {managed: false};
+  if (require('./managed-setup.cjs').isFrozen(env)) return {managed: true, skipped: 'frozen', project: null, departments: [], teams: []};
   // By department, a grant Biz cannot identify (old OAuth grant) would look like a person with no
   // departments, and the sync would unflag their teams. Skip instead and change nothing; the panel
-  // tab asks the person to reconnect. An unreadable report does not block the sync.
-  if (access && credential && !env.FYSO_BIZ_ACCESS_PROJECT && await needsReauthorization(access, credential)) {
+  // tab asks the person to reconnect. `credential` is the person's profile token
+  // (`framework_access`), never the agent grant. An access report that cannot be read still lets
+  // new teams come in, but blocks everything destructive: unflagging and re-recording departments.
+  const guard = access && !env.FYSO_BIZ_ACCESS_PROJECT ? await guardOf(access, credential) : 'ok';
+  if (guard === 'reauthorize_required') {
     return {managed: true, skipped: 'reauthorize_required', project: null, departments: [], teams: []};
   }
+  const destructive = guard === 'ok';
   helper ??= managedBots(root);
   tpl ??= sync.templates(root);
   actions ??= panelActions(root, env);
@@ -136,14 +141,18 @@ async function deliver({mcp, root, env = process.env, tpl, helper, actions, git,
     await settle({root, tpl, equipoId: team.equipoId, git});
     results.push({equipoId: team.equipoId, department: pulled.department, version: pulled.version, applied: true});
   }
-  if (!todo.length) await helper.record({root, owner: OWNER, teamYaml: teamFile(), departments: [...departments], bots: [...bots]});
-  await markManaged({root, equipoIds: teams.map(t => t.equipoId), git});
-  return {managed: true, project, departments: assigned, teams: results};
+  if (!todo.length && destructive) await helper.record({root, owner: OWNER, teamYaml: teamFile(), departments: [...departments], bots: [...bots]});
+  await markManaged({root, equipoIds: teams.map(t => t.equipoId), git, unflag: destructive});
+  return {managed: true, project, departments: assigned, teams: results, ...(destructive ? {} : {unreadable: true})};
 }
 
-/** Whether Biz asks this credential to reconnect (`reauthorize_required`); any failure to read it is `false`. */
-async function needsReauthorization(access, credential) {
-  try { return (await access.report(credential)).reauthorizeRequired === true; } catch { return false; }
+/**
+ * The access report as a guard for destructive steps: `ok`, `reauthorize_required` (Biz cannot
+ * identify the grant) or `unreadable`. A missing credential or a failed read is never `ok`.
+ */
+async function guardOf(access, credential) {
+  if (!credential) return 'unreadable';
+  try { return (await access.report(credential)).reauthorizeRequired === true ? 'reauthorize_required' : 'ok'; } catch { return 'unreadable'; }
 }
 
 /** The pull is applied, as the panel's status() records it: the department matches the package. */
@@ -155,13 +164,13 @@ async function settle({root, tpl, equipoId, git}) {
 }
 
 /** Flag the departments Biz manages for this project (the panel reads it); unflag the rest. */
-async function markManaged({root, equipoIds, git}) {
+async function markManaged({root, equipoIds, git, unflag = true}) {
   const state = sync.readState(root);
   let changed = false;
   for (const record of Object.values(state.departments)) {
     const managed = equipoIds.includes(record?.equipoId);
     if (managed && !record.managed) { record.managed = true; changed = true; }
-    if (!managed && record?.managed) { delete record.managed; changed = true; }
+    if (unflag && !managed && record?.managed) { delete record.managed; changed = true; }
   }
   return changed ? sync.saveState(root, state, 'biz: record the departments Biz manages', git) : null;
 }
@@ -173,8 +182,12 @@ if (require.main === module) (async () => {
   const biz = require('./biz.cjs');
   const credential = await biz.token();
   const mcp = biz.client(process.env.FYSO_BIZ_URL || '', credential.token, fetch, {oauth: credential.oauth});
-  const result = await deliver({mcp, root: process.cwd(), access: require('./project-access.cjs').projectAccess(), credential: credential.token});
-  if (result.skipped) console.error('Fyso Biz: managed teams skipped: reconnect Fyso Biz (reauthorize_required)');
+  // The guard reads the access report with the profile grant (scope framework_access), not the agent grant above.
+  let profile;
+  try { profile = await require('./auth.cjs').store().profileAccessToken(); } catch { /* not connected: the guard blocks destructive steps */ }
+  const result = await deliver({mcp, root: process.cwd(), access: require('./project-access.cjs').projectAccess(), credential: profile});
+  if (result.skipped) console.error(`Fyso Biz: managed teams skipped: ${result.skipped === 'frozen' ? 'access revoked' : 'reconnect Fyso Biz (reauthorize_required)'}`);
+  else if (result.unreadable) console.error('Fyso Biz: managed teams: the access report could not be read; nothing was removed');
   console.log(JSON.stringify(result));
 })().catch(error => {
   const code = ERRORS.includes(error.message) || sync.ERRORS.includes(error.message) ? error.message : 'connection_failed';

@@ -284,3 +284,24 @@ test('the legacy project path never asks for the access report', async () => {
   const access = {report: async () => assert.fail('legacy path')};
   assert.equal((await s.run({access, credential: 'grant'})).managed, true);
 });
+
+test('the reauthorize guard reads the report with the credential it is given and blocks destructive steps when it cannot', async () => {
+  const env = {FYSO_BIZ_ACCESS_ORGANIZATION: ORG};
+  const tools = ['departamentos_framework', 'listar_equipos', 'exportar_equipo'];
+  const s = setup({tools});
+  await s.run({env});
+  const state = sync.readState(s.root);
+  state.departments.Gone = {equipoId: 'gone', managed: true, version: 1, digest: 'x', bots: []};
+  sync.saveState(s.root, state, 'flag');
+  const seen = [];
+  for (const credential of [undefined, 'profile']) {
+    const access = {report: async token => { seen.push(token); throw Error('biz_access_unavailable'); }};
+    const result = await s.run({env, access, credential});
+    assert.equal(result.unreadable, true);
+    assert.equal(sync.readState(s.root).departments.Gone.managed, true, 'a failed read never unflags');
+  }
+  assert.deepEqual(seen, ['profile']);
+  // A readable report lets the unflagging happen.
+  await s.run({env, access: {report: async () => ({capabilities: ['app:panel'], reauthorizeRequired: false})}, credential: 'profile'});
+  assert.equal(sync.readState(s.root).departments.Gone.managed, undefined);
+});

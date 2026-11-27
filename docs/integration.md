@@ -89,3 +89,13 @@ Contract with Biz (additive; the project-based forms keep working). `GET /oauth/
 Capability mapping in `project-policy.cjs`: the action capability of each route still decides. When Biz sends a `policy`, `frameworkRequirement()` additionally requires `framework:mcp_servers:catalog` for MCP server management (`action:connectors:manage`). It narrows access and never widens it, so a Biz without policy behaves as before.
 
 Still needing a framework-core hook (no panel action or gate exists in the extension): `framework:extensions:catalog|any` (extension install and which catalogs), `framework:mcp_servers:any` (catalog vs custom server, the body is not visible to the policy), `framework:bots:create` (creating bots, which shares the `fyso-bots-apply` workflow with pulling Biz teams), `framework:machine:read|write[:ask]`, `framework:shell[:ask]` (agent computer, file and command permissions), `framework:publish` and `framework:ai:standard|high` (model choice and consumption).
+
+## Biz-managed setup (v0.7.0)
+
+Needs Biz's managed-setup endpoints (`GET /oauth/framework-access` with `setup`, `etag`, `recipients_pending`, `frozen`; `/setup`; `/recipient`; `/recipients`, all with `?organization=`) and the framework's Biz transport (`dist:key`, `dist:plan --json`, `dist:add biz`, `dist:update`, `dist:publish`).
+
+- **Credential:** the `framework_access` profile grant. The panel session keeps it only on **Connect** (`profile-oauth.json` under `.data/ext/biz/`, renewable); Cancel and Disconnect delete it. `profile-token.cjs` prints a fresh token for `FYSO_DIST_BIZ_TOKEN_CMD`.
+- **Connect:** `/api/ext/biz/profile/setup/{status,preview,confirm,cancel,publish,disconnect}` (`managed-setup.cjs`). `preview` registers the age key and returns the plan and removals; `confirm` takes the digest of what was shown (`preview_changed` if it moved), snapshots, installs, delivers teams and removes.
+- **Sync:** `ext-biz-sync` runs `managed-setup.cjs sync`. State is `.data/ext/biz/setup.json`; notices appear in the Setup tab.
+- **Freeze:** state `frozen` makes `project-policy.cjs` refuse non-read requests and `mcp-policy.cjs` refuse non-read tools, and removes the delivered secrets (`sops unset`, needs sops 3.9+). Unfrozen when Biz answers `frozen: false`.
+- **Limits:** "in the setup" means what earlier plans listed as added; an extension, MCP server or bot that was already local and identical to the setup's is treated as local. Catalog extensions are those that `marketplace.cjs resolve` maps to the installed source; catalog MCP servers are those of `framework/mcp.json`.

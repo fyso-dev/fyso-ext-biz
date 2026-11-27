@@ -8,8 +8,9 @@ import { Teams } from "./Teams";
 import { Business } from "./Business";
 import { Work } from "./Work";
 import { Access, useBizAccess } from "./Access";
+import { Setup } from "./Setup";
 
-type Tab = "teams" | "business" | "work" | "access";
+type Tab = "teams" | "business" | "work" | "access" | "setup";
 
 export function Biz() {
   const {t} = useTranslation();
@@ -88,8 +89,9 @@ export function Biz() {
         <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
         <button type="button" role="tab" aria-selected={tab === "work"} aria-pressed={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
         {access && <button type="button" role="tab" aria-selected={tab === "access"} aria-pressed={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
+        {access && <button type="button" role="tab" aria-selected={tab === "setup"} aria-pressed={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
       </div>
-      {tab === "access" && access ? <Access access={access} /> : tab === "teams"
+      {tab === "setup" && access ? <Setup access={access} /> : tab === "access" && access ? <Access access={access} /> : tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
         : tab === "business" ? <Business onContext={setContext} /> : <Work />}
       {tab === "teams" && connection.method === "oauth" && <Mail />}
