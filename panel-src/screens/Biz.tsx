@@ -7,7 +7,7 @@ import { forget, read, remember, remembered } from "../api/read";
 import { Teams } from "./Teams";
 import { Business } from "./Business";
 import { Work } from "./Work";
-import { Access, useBizAccess } from "./Access";
+import { Access, useBizAccess, useManagedAccess } from "./Access";
 import { Setup } from "./Setup";
 
 type Tab = "teams" | "business" | "work" | "access" | "setup";
@@ -28,6 +28,11 @@ export function Biz() {
   const [tab, setTab] = useState<Tab>(()=>{ try { return sessionStorage.getItem("biz.tab") === "business" ? "business" : "teams"; } catch { return "teams"; } });
   // Biz-managed access only: the person's departments and framework freedom (null otherwise).
   const access = useBizAccess();
+  // Managed access configured at all (profile/status answers 200) and whether a profile session exists.
+  const managed = useManagedAccess();
+  // Setup is the entry to Connect, so it shows whenever managed access is configured; Access needs the session.
+  const showSetup = managed?.managed === true;
+  const showAccess = showSetup && managed?.connected === true && !!access;
   const bizBot = s.runtimeBots.data?.find(b=>b.name === "Biz Partner");
   const epoch = useRef(0);
 
@@ -88,10 +93,10 @@ export function Biz() {
         <button type="button" role="tab" aria-selected={tab === "teams"} aria-pressed={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
         <button type="button" role="tab" aria-selected={tab === "business"} aria-pressed={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
         <button type="button" role="tab" aria-selected={tab === "work"} aria-pressed={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
-        {access && <button type="button" role="tab" aria-selected={tab === "access"} aria-pressed={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
-        {access && <button type="button" role="tab" aria-selected={tab === "setup"} aria-pressed={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
+        {showAccess && <button type="button" role="tab" aria-selected={tab === "access"} aria-pressed={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
+        {showSetup && <button type="button" role="tab" aria-selected={tab === "setup"} aria-pressed={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
       </div>
-      {tab === "setup" && access ? <Setup access={access} /> : tab === "access" && access ? <Access access={access} /> : tab === "teams"
+      {tab === "setup" && showSetup ? <Setup access={managed?.connected ? access ?? null : null} /> : tab === "access" && showAccess && access ? <Access access={access} /> : tab === "teams"
         ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
         : tab === "business" ? <Business onContext={setContext} /> : <Work />}
       {tab === "teams" && connection.method === "oauth" && <Mail />}

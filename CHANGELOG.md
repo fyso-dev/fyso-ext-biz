@@ -5,6 +5,7 @@ Versions are the Git tags of this repository. Earlier releases are described in 
 ## v0.7.1
 
 - Fix: `copier update` failed with "Update the framework before enabling Biz-managed access" when `biz_access_organization` was set. Copier renders the old version in a temporary directory without `framework/panel/*.json`, so the missing access API read as version 0. The validator now refuses a missing or too-low access API only when the host's `extension-api.json` is present (a real host); the replay is tolerated.
+- Fix: with Biz-managed access configured but no profile session, the Biz screen hid the Access and Setup tabs, so a project that never connected had no way to reach Connect. The Setup tab now shows whenever managed access is configured (`GET /api/ext/biz/profile/status` answers 200 only then), with a **Connect Fyso Biz** action that starts the profile login and explains the steps (sign in, consent, preview and warning before anything changes). An old grant (`reauthorize_required`) shows the same action. The Access tab appears once connected; without managed access nothing changes.
 
 ## v0.7.0
 

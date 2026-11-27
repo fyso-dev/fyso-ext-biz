@@ -220,6 +220,12 @@
     "tabSetup": "Setup"
   },
   "access": {
+    "connectTitle": "Connect Fyso Biz",
+    "connectDescription": "This project uses the access and setup your organization manages in Fyso Biz. Connect to see your departments and the organization's setup.",
+    "connectStepSignIn": "You sign in to Fyso Biz.",
+    "connectStepConsent": "You approve access for this project.",
+    "connectStepPreview": "You come back here and see a preview with a warning of what would change. Nothing changes until you confirm.",
+    "connectButton": "Connect Fyso Biz",
     "reauthorize": "Your Fyso Biz connection predates departments and we cannot tell who you are. Reconnect Fyso Biz to see your departments; meanwhile nothing about your teams is changed.",
     "reconnect": "Reconnect Fyso Biz",
     "departmentsTitle": "Your departments",

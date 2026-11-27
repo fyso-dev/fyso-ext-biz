@@ -146,3 +146,23 @@ test('the access report flags an old grant that must reconnect, so the panel doe
   const report = await invoke(profiles, request('/profile/access', 'ana', {cookie: session}));
   assert.deepEqual(JSON.parse(report.body), {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: true});
 });
+
+test('the panel can tell managed access is configured and that no profile session exists yet', async () => {
+  const profiles = profileSessions({env, auth: {}, access: {}});
+  const status = await invoke(profiles, request('/profile/status', 'ana'));
+  assert.equal(status.status, 200);
+  assert.deepEqual(JSON.parse(status.body), {connected: false});
+  // Setup needs a session: without one the panel shows the Connect action instead.
+  assert.equal((await invoke(profiles, request('/profile/setup/status', 'ana'))).status, 403);
+  // Not configured: the status route is 404, so the panel shows no Setup tab.
+  const plain = profileSessions({env: {...env, FYSO_BIZ_ACCESS_ORGANIZATION: ''}, auth: {}, access: {}});
+  assert.equal((await invoke(plain, request('/profile/status', 'ana'))).status, 404);
+});
+
+test('the panel shows Setup with a Connect action when managed access has no profile session', () => {
+  const fs = require('node:fs');
+  const read = file => fs.readFileSync(`${__dirname}/../panel-src/screens/${file}`, 'utf8');
+  assert.match(read('Biz.tsx'), /showSetup = managed\?\.managed === true/);
+  assert.match(read('Access.tsx'), /action="\/api\/ext\/biz\/profile\/login"/);
+  assert.match(read('Setup.tsx'), /response\?\.status === 403/);
+});

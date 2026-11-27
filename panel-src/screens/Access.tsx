@@ -24,15 +24,49 @@ export function useBizAccess():BizAccess|null|undefined {
   return access;
 }
 
+/**
+ * Whether Biz-managed access is configured here and whether this person has a profile session.
+ * `GET /api/ext/biz/profile/status` answers 404 when `biz_access_organization` is not set, so a 200 is
+ * what says "managed"; `connected` is the profile (framework_access) session. `undefined` while loading.
+ */
+export function useManagedAccess():{managed:boolean; connected:boolean}|undefined {
+  const [state, setState] = useState<{managed:boolean; connected:boolean}>();
+  useEffect(()=>{
+    const controller = new AbortController();
+    fetch("/api/ext/biz/profile/status", {cache:"no-store", signal:controller.signal}).then(async response => {
+      if (!response.ok) return setState({managed:false, connected:false});
+      const data = await response.json().catch(()=>null);
+      setState({managed:true, connected:data?.connected === true});
+    }).catch(()=>{ if (!controller.signal.aborted) setState({managed:false, connected:false}); });
+    return ()=>controller.abort();
+  }, []);
+  return state;
+}
+
+/** Starts the profile login (the same POST the hidden sign-in page makes): Biz sign-in, consent, back here. */
+export function ConnectBiz({reauthorize}:{reauthorize?:boolean}) {
+  const {t} = useTranslation();
+  return <section className="card biz-hero" aria-labelledby="biz-managed-connect">
+    <span className="empty-icon" aria-hidden="true">⇄</span>
+    <h2 id="biz-managed-connect">{t("access.connectTitle")}</h2>
+    {reauthorize && <p className="banner banner-down" role="alert">{t("access.reauthorize")}</p>}
+    <p className="mute">{t("access.connectDescription")}</p>
+    <ol className="biz-benefits">
+      <li>{t("access.connectStepSignIn")}</li>
+      <li>{t("access.connectStepConsent")}</li>
+      <li>{t("access.connectStepPreview")}</li>
+    </ol>
+    <form method="post" action="/api/ext/biz/profile/login" target="_top">
+      <button type="submit" className="btn btn-pri biz-cta">{t(reauthorize ? "access.reconnect" : "access.connectButton")}</button>
+    </form>
+  </section>;
+}
+
 export function Access({access}:{access:BizAccess}) {
   const {t} = useTranslation();
   const {departments, policy, admin} = access;
   // An old grant: Biz cannot tell who this is. Not "no departments": ask to reconnect.
-  if (access.reauthorizeRequired) return <section className="card" aria-labelledby="biz-access-departments">
-    <h2 id="biz-access-departments">{t("access.departmentsTitle")}</h2>
-    <p className="banner banner-down" role="alert">{t("access.reauthorize")}</p>
-    <a className="btn btn-pri" href="/api/ext/biz/profile/sign-in">{t("access.reconnect")}</a>
-  </section>;
+  if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   return <>
     <section className="card" aria-labelledby="biz-access-departments">
       <h2 id="biz-access-departments">{t("access.departmentsTitle")}</h2>
