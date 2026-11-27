@@ -13,13 +13,13 @@ const messages = {
   es: {title: 'Ingresá con Fyso Biz', description: 'Usá tu cuenta de Fyso Biz para acceder a este proyecto.', button: 'Continuar con Fyso Biz'},
 };
 
-function signInPage(req, res) {
+function signInPage(req, res, bizOrigin) {
   const language = /^en\b/i.test(req.headers['accept-language'] || '') ? 'en' : 'es';
   const {title, description, button} = messages[language];
   res.writeHead(200, {
     'Cache-Control': 'no-store',
     'Content-Type': 'text/html; charset=utf-8',
-    'Content-Security-Policy': "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    'Content-Security-Policy': `default-src 'none'; form-action 'self' ${bizOrigin}; frame-ancestors 'none'; base-uri 'none'`,
   });
   res.end(`<!doctype html><html lang="${language}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title><main><h1>${title}</h1><p>${description}</p>
@@ -183,7 +183,8 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       }
       switch (req.method + ' ' + url.pathname) {
       case 'GET /profile/sign-in':
-        signInPage(req, res);
+        // The login answers 303 to Biz; Chrome applies form-action to that redirect, so the Biz origin must be allowed (never a wildcard).
+        signInPage(req, res, origin(env.FYSO_BIZ_URL || ''));
         break;
       case 'POST /profile/login': {
         const callback = new URL('/extensions/biz/oauth/callback', addresses(env).page).href;

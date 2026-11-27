@@ -123,7 +123,18 @@ test('renders a same-origin sign-in form in the browser language', async () => {
   assert.equal(response.status, 200);
   assert.match(response.body, /Sign in with Fyso Biz/);
   assert.match(response.body, /method="post" action="\/api\/ext\/biz\/profile\/login"/);
-  assert.match(response.headers['Content-Security-Policy'], /form-action 'self'/);
+  assert.match(response.headers['Content-Security-Policy'], /form-action 'self' https:\/\/biz\.test;/);
+  assert.doesNotMatch(response.headers['Content-Security-Policy'], /\*/);
+});
+
+test('the sign-in CSP form-action covers the origin the login redirects to', async () => {
+  const url = 'https://biz.test/oauth/authorize?state=s&code_challenge=c';
+  const profiles = profileSessions({env, access: {}, auth: {async beginProfile() { return {state: 's', url}; }}});
+  const page = await invoke(profiles, request('/profile/sign-in', 'ana'));
+  const login = await invoke(profiles, request('/profile/login', 'ana', {method: 'POST'}));
+  assert.equal(login.status, 303);
+  const sources = page.headers['Content-Security-Policy'].match(/form-action ([^;]+)/)[1].split(' ');
+  assert.ok(sources.includes(new URL(login.headers.Location).origin));
 });
 
 test('the access report flags an old grant that must reconnect, so the panel does not show it as having no departments', async () => {
