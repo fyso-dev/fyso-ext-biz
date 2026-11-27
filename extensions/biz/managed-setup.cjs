@@ -317,13 +317,22 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function distPublish() {
     try { return mise('run', 'dist:publish'); } catch (error) {
       if (error.status === 3 || /stale_base/.test(`${error.message}${error.stderr || ''}`)) throw Object.assign(Error('stale_base'), {cause: error});
+      // Exit 5: this publisher never installed the setup Biz already has; install it first.
+      if (error.status === 5) throw Object.assign(Error('setup_not_installed'), {cause: error});
       throw error;
     }
   }
 
   /** `dist:update` on a publisher merges; exit 4 is a conflict that left the project unchanged. */
-  function distMerge() {
-    try { return mise('run', 'dist:update'); } catch (error) {
+  function distMerge({ours = [], theirs = []} = {}) {
+    // Conflicts are resolved per file by name: `--ours` keeps the project's, `--theirs` takes the published one.
+    const named = list => names(list).filter(f => f && !f.startsWith('-') && f.length <= 300).slice(0, 500);
+    const [keep, take] = [named(ours), named(theirs)];
+    try {
+      const output = mise('run', 'dist:update', ...(keep.length ? ['--ours', ...keep] : []), ...(take.length ? ['--theirs', ...take] : []));
+      if (readState(env).publishPaused) save({publishPaused: null});
+      return output;
+    } catch (error) {
       if (error.status !== 4) throw error;
       let files = [];
       try { files = names(JSON.parse(fs.readFileSync(path.join(env.FYSO_DATA || path.join(root, '.data'), 'dist', 'merge-conflicts.json'), 'utf8')).files); } catch { /* unreadable list */ }
@@ -342,11 +351,11 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   }
 
   /** "Update and merge": bring the latest version into this publisher's project (never discarding its edits), then publish again. */
-  async function mergeAndPublish() {
+  async function mergeAndPublish(choices) {
     const bearer = await token();
     if (!(await readReport(bearer)).admin) throw Error('admin_required');
     snapshot();
-    distMerge();
+    distMerge(choices);
     return publish();
   }
 
@@ -458,7 +467,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
           result.status = 'published';
         }
       } catch (error) {
-        if (error.message === 'merge_conflict') {
+        if (error.message === 'setup_not_installed') notify('setup_not_installed', 'Automatic publishing needs the current setup installed first: open the Setup tab and connect.');
+        else if (error.message === 'merge_conflict') {
           save({publishPaused: {files: error.files, at: new Date(now()).toISOString()}});
           notify('merge_conflict', `Automatic publishing paused: the latest setup conflicts with local edits in ${error.files.join(', ') || 'some files'}. Nothing was changed; resolve them and publish from the panel.`);
         } else notify('publish_failed', `Could not publish: ${String(error.message).slice(0, 100)}`);

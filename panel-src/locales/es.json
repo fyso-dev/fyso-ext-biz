@@ -335,10 +335,15 @@
       "not_renewable": "Biz no entregó una credencial renovable; reconectá.",
       "dist_failed": "No se pudo aplicar la distribución.",
       "stale_base": "Otro administrador publicó un setup más nuevo. Actualizá y fusioná, y luego publicá de nuevo.",
-      "merge_conflict": "El último setup entra en conflicto con tus cambios locales en los archivos de abajo. No se cambió nada."
+      "merge_conflict": "El último setup entra en conflicto con tus cambios locales en los archivos de abajo. No se cambió nada.",
+      "setup_not_installed": "Este proyecto no instaló el setup que Biz ya tiene. Instalalo primero y luego publicá."
     },
     "mergeAndPublish": "Actualizar y fusionar",
     "conflicts": "Archivos en conflicto",
-    "publishPaused": "La publicación automática está en pausa: el último setup entra en conflicto con tus cambios en {{files}}. No se cambió nada; resolvelos y publicá de nuevo."
+    "publishPaused": "La publicación automática está en pausa: el último setup entra en conflicto con tus cambios en {{files}}. No se cambió nada; resolvelos y publicá de nuevo.",
+    "installFirst": "Instalar primero el setup actual",
+    "keepMine": "Quedarme con el mío",
+    "takePublished": "Tomar el publicado",
+    "resolveMerge": "Resolver y fusionar"
   }
 }

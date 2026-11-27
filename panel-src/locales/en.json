@@ -335,10 +335,15 @@
       "not_renewable": "Biz did not issue a renewable grant; reconnect.",
       "dist_failed": "The distribution could not be applied.",
       "stale_base": "Another administrator published a newer setup. Update and merge it, then publish again.",
-      "merge_conflict": "The latest setup conflicts with your local edits in the files below. Nothing was changed."
+      "merge_conflict": "The latest setup conflicts with your local edits in the files below. Nothing was changed.",
+      "setup_not_installed": "This project has not installed the setup Biz already has. Install it first, then publish."
     },
     "mergeAndPublish": "Update and merge",
     "conflicts": "Conflicting files",
-    "publishPaused": "Automatic publishing is paused: the latest setup conflicts with your edits in {{files}}. Nothing was changed; resolve them and publish again."
+    "publishPaused": "Automatic publishing is paused: the latest setup conflicts with your edits in {{files}}. Nothing was changed; resolve them and publish again.",
+    "installFirst": "Install the current setup first",
+    "keepMine": "Keep mine",
+    "takePublished": "Take the published one",
+    "resolveMerge": "Resolve and merge"
   }
 }

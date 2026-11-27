@@ -444,3 +444,30 @@ test('sync: admin auto-republish merges once on stale_base and retries; a confli
   assert.ok(!h.calls.some(c => c.includes('dist:publish') || c.includes('dist:update')));
   assert.deepEqual(h.s.status().publishPaused.files, ['x.md', 'y.md']);
 });
+
+test('publisher that never installed the setup (exit 5) is told to install it first; sync only notices', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN(), recipients: {recipients: [], etag: 'r2'}});
+  h.exits['dist:publish'] = [5];
+  await assert.rejects(h.s.publish(), {message: 'setup_not_installed'});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({admin: true, recipientsPending: 1});
+  h.exits['dist:publish'] = [5];
+  await h.s.sync();
+  assert.equal(readState(h.env).notices.some(n => n.kind === 'setup_not_installed'), true);
+});
+
+test('resolving conflicts passes --ours/--theirs by file name, then publishes, and clears a paused auto-republish', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  require('../extensions/biz/managed-setup.cjs').writeState(h.env, {...readState(h.env), publishPaused: {files: ['a.md']}});
+  h.calls.length = 0;
+  await h.s.mergeAndPublish({ours: ['a.md'], theirs: ['b.md', '--evil']});
+  assert.ok(h.calls.some(c => c.endsWith('dist:update --ours a.md --theirs b.md')), h.calls.join('\n'));
+  assert.ok(h.calls.at(-1).includes('dist:publish') || h.calls.some(c => c.includes('dist:publish')));
+  assert.equal(readState(h.env).publishPaused ?? null, null);
+  // Still conflicting (a file not named): exit 4, nothing published.
+  h.exits['dist:update'] = [4];
+  h.calls.length = 0;
+  await assert.rejects(h.s.mergeAndPublish({ours: ['a.md']}), {message: 'merge_conflict'});
+  assert.ok(!h.calls.some(c => c.includes('dist:publish')));
+});

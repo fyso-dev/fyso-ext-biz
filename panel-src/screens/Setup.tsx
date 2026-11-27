@@ -24,14 +24,16 @@ export function Setup({access}:{access:BizAccess}) {
   const [message, setMessage] = useState<{ok:boolean; text:string}>();
   const [stale, setStale] = useState(false);
   const [conflicts, setConflicts] = useState<string[]>([]);
+  const [choice, setChoice] = useState<Record<string, "ours"|"theirs">>({});
+  const [notInstalled, setNotInstalled] = useState(false);
   const load = async () => { const r = await fetch("/api/ext/biz/profile/setup/status", {cache:"no-store"}).then(x=>x.ok ? x.json() : null).catch(()=>null); setStatus(r ?? undefined); };
   useEffect(()=>{ void load(); }, []);
   const fail = (code?:string) => setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")})});
   const run = async (op:string, body?:object, done?:(r:any)=>void) => {
-    setBusy(true); setMessage(undefined); setStale(false); setConflicts([]);
+    setBusy(true); setMessage(undefined); setStale(false); setConflicts([]); setNotInstalled(false);
     const result = await post(op, body);
     setBusy(false);
-    if (result.error) { fail(result.error); setStale(result.error === "stale_base"); setConflicts(Array.isArray(result.files) ? result.files : []); } else done?.(result);
+    if (result.error) { fail(result.error); setStale(result.error === "stale_base"); setNotInstalled(result.error === "setup_not_installed"); setConflicts(Array.isArray(result.files) ? result.files : []); } else done?.(result);
     await load();
   };
   const list = (r:Removals) => [...r.extensions.map(e=>t("setup.removeExtension", {name:e.id})), ...r.mcp_servers.map(e=>t("setup.removeMcp", {name:e.id})),
@@ -53,7 +55,7 @@ export function Setup({access}:{access:BizAccess}) {
         <p className="hint">{status.offered ? t("setup.offered", {version:status.offered.version}) : t("setup.noneOffered")}</p>
         <button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.connect")}</button>
       </>}
-    {preview && !status.connected && <div role="group" aria-label={t("setup.previewTitle")}>
+    {preview && <div role="group" aria-label={t("setup.previewTitle")}>
       <h3>{t("setup.previewTitle")}</h3>
       {preview.removalCount === 0 && preview.replaced.length === 0 ? <p className="mute">{t("setup.nothingLost")}</p> : <p className="banner banner-warn" role="alert">{t("setup.warning")}</p>}
       {preview.replaced.length > 0 && <><p><strong>{t("setup.replaced", {count:preview.replaced.length})}</strong></p><ul>{preview.replaced.map(f=><li key={f.path}><code>{f.path}</code></li>)}</ul></>}
@@ -64,8 +66,13 @@ export function Setup({access}:{access:BizAccess}) {
         <button type="button" className="btn btn-soft" disabled={busy} onClick={()=>void run("cancel", undefined, ()=>setPreview(undefined))}>{t("setup.cancel")}</button>
       </div>
     </div>}
-    {stale && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("merge", undefined, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.mergeAndPublish")}</button></div>}
-    {conflicts.length > 0 && <ul aria-label={t("setup.conflicts")}>{conflicts.map(f=><li key={f}><code>{f}</code></li>)}</ul>}
+    {stale && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("merge", {}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.mergeAndPublish")}</button></div>}
+    {notInstalled && <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.installFirst")}</button></div>}
+    {conflicts.length > 0 && <fieldset><legend>{t("setup.conflicts")}</legend><ul>{conflicts.map(f=><li key={f}><code>{f}</code>{" "}
+      <label><input type="radio" name={f} checked={choice[f] === "ours"} onChange={()=>setChoice({...choice, [f]:"ours"})} /> {t("setup.keepMine")}</label>{" "}
+      <label><input type="radio" name={f} checked={choice[f] === "theirs"} onChange={()=>setChoice({...choice, [f]:"theirs"})} /> {t("setup.takePublished")}</label></li>)}</ul>
+      <button type="button" className="btn btn-sm btn-pri" disabled={busy || conflicts.some(f=>!choice[f])}
+        onClick={()=>void run("merge", {ours:conflicts.filter(f=>choice[f] === "ours"), theirs:conflicts.filter(f=>choice[f] === "theirs")}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.resolveMerge")}</button></fieldset>}
     {status.publishPaused && <p className="banner banner-warn" role="status">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</p>}
     {status.connected && <div className="connector-actions">
       {status.admin && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("publish", undefined, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.publish")}</button>}
