@@ -8,10 +8,17 @@ processes:
         command: >-
           framework/scripts/run-ext.sh biz -- bash -c 'curl -fsS "http://127.0.0.1:$FYSO_EXT_BIZ_PORT/health"
           && if [ -n "$FYSO_EXT_SOCKET" ]; then curl -fsS --unix-socket "$FYSO_EXT_SOCKET" http://biz/health; fi'
+      timeout_seconds: 10
+    availability:
+      restart: always
+      backoff_seconds: 3
 {% if panel_publication %}
   ext-biz-publication:
     command: framework/scripts/run-ext.sh biz -- node extensions/biz/publication.cjs connect
     depends_on:
       caddy:
         condition: process_healthy
+    availability:
+      restart: always
+      backoff_seconds: 3
 {% endif %}
