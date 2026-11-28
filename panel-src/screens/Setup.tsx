@@ -9,7 +9,7 @@ type Added = {added:string[]; removed:string[]};
 type Changes = Added & {modified:string[]};
 type PublishPreview = {version:string|null; base?:string|null; changed:boolean; blocked?:boolean; error?:string; files?:Changes; files_count?:number; bots?:Changes; extensions?:Added;
   mcp_servers?:Added; secrets?:string[]; recipients?:{count:number; changed:boolean}; framework?:string|null; checks:Record<string,string>; digest:string};
-type SetupStatus = {connected:boolean; selfPublished?:string|null; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string; count?:number}[]; bizVersion?:string|null; admin:boolean; offered:{version:string}|null};
+type SetupStatus = {connected:boolean; selfPublished?:string|null; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string; count?:number}[]; bizVersion?:string|null; shownVersion?:string|null; admin:boolean; offered:{version:string}|null};
 
 const KINDS:ChangeKind[] = ["added", "modified", "removed"];
 const NOTICE_TONE:Record<string, string> = {connected:"ok", reconnected:"ok", applied:"ok", published:"ok", unfrozen:"ok", publish_failed:"down", failed:"down", frozen:"down",
@@ -112,7 +112,8 @@ export function Setup({access}:{access:BizAccess|null}) {
     if (n.kind === "reconnected") return t("setup.noticeReconnected");
     return CODES.reduce((out, code)=>out.replaceAll(code, t(`setup.codes.${code}`)), n.text);
   };
-  const version = status.bizVersion ?? status.version;
+  // Biz's answer when there is one; otherwise the newest this project knows (a version it published itself can be newer than the applied one).
+  const version = status.bizVersion ?? status.shownVersion ?? status.version;
   const needsReauth = reauth || status.paused?.reason === "reauthorize_required";
   const notices = [...status.notices].reverse();
 
@@ -130,7 +131,7 @@ export function Setup({access}:{access:BizAccess|null}) {
     {status.publishPaused && <Notice tone="warn">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</Notice>}
     {message && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
     {status.connected
-      ? <Notice tone="ok">{status.admin && status.selfPublished && status.selfPublished === version ? t("setup.connectedPublisher", {version}) : t("setup.connected", {version:version ?? "-"})}</Notice>
+      ? <Notice tone="ok">{status.selfPublished && status.selfPublished === version ? t("setup.connectedPublisher", {version}) : t("setup.connected", {version:version ?? "-"})}</Notice>
       : !status.noAccess && !preview && <>
         <Notice tone="info">{status.offered ? t("setup.offered", {version:status.offered.version}) : t("setup.noneOffered")}</Notice>
         <div className="connector-actions"><button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.connect")}</button></div>

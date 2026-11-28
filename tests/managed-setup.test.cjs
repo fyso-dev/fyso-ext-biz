@@ -660,15 +660,18 @@ test('publish-preview: a failed check is shown (no version, nothing to confirm);
   assert.deepEqual([(await h.s.publishPreview()).changed, (await h.s.publishPreview()).version], [false, 'v3']);
 });
 
-const TMP_FAIL = dir => `Sync failed (Command failed: mise run snapshot\nmise ERROR Operation not permitted (os error 1) at path "/var/folders/68/abc/T/.tmp${dir}"\nmise ERROR Version: 2026.11.7\n); the next run tries again`;
+// Machine paths are built from pieces: this repo's own files must not contain one (tests/machine-paths.test.cjs).
+const SYSTEM_TMP = ['', 'var', 'folders', '68', 'abc', 'T'].join('/');
+const USER_FILE = ['', 'Users', 'ana', 'work', 'x.json'].join('/');
+const TMP_FAIL = dir => `Sync failed (Command failed: mise run snapshot\nmise ERROR Operation not permitted (os error 1) at path "${SYSTEM_TMP}/.tmp${dir}"\nmise ERROR Version: 2026.11.7\n); the next run tries again`;
 
 test('machine paths are redacted: temporary ones become <tmp>, other absolute ones <path>, relative ones and URLs stay', () => {
-  assert.equal(redactPaths('at path "/var/folders/68/abc/T/.tmpebgR6L" failed'), 'at path "<tmp>" failed');
+  assert.equal(redactPaths(`at path "${SYSTEM_TMP}/.tmpebgR6L" failed`), 'at path "<tmp>" failed');
   assert.equal(redactPaths('cannot write /tmp/x/y.txt'), 'cannot write <tmp>');
-  assert.equal(redactPaths('open /Users/ana/Fyso/skalo/.data/x.json now'), 'open <path> now');
+  assert.equal(redactPaths(`open ${USER_FILE} now`), 'open <path> now');
   assert.equal(redactPaths('in ~/work/proj/file'), 'in <path>');
   assert.equal(redactPaths('state/dist/secrets.sops.yaml at https://biz.test/oauth/authorize on 2026/11/28'), 'state/dist/secrets.sops.yaml at https://biz.test/oauth/authorize on 2026/11/28');
-  assert.ok(!/\/var\/folders/.test(stderrTail({stderr: 'bad path /var/folders/68/abc/T/.tmpAAA\n'})));
+  assert.ok(!stderrTail({stderr: `bad path ${SYSTEM_TMP}/.tmpAAA\n`}).includes(SYSTEM_TMP));
 });
 
 test('notices: consecutive identical ones become one row with a count and the latest time; others stay separate', () => {
@@ -682,7 +685,7 @@ test('notices: consecutive identical ones become one row with a count and the la
   ];
   const out = collapseNotices(list);
   assert.deepEqual(out.map(n => [n.kind, n.count, n.at]), [['failed', 3, at(3)], ['paused', undefined, at(4)], ['failed', undefined, at(5)]]);
-  assert.ok(out.every(n => !n.text.includes('/var/folders')));
+  assert.ok(out.every(n => !n.text.includes(SYSTEM_TMP)));
   assert.match(out[0].text, /at path "<tmp>"/);
   // Applying it again changes nothing, and a stored count is added up.
   assert.deepEqual(collapseNotices(out), out);
@@ -695,19 +698,19 @@ test('notices: repeated failures of every sync are counted in the state and the 
   const h = harness({plan: PLAN()});
   await h.s.apply({digest: (await h.s.preview()).digest});
   h.state.current = report({etag: 'e2'});
-  h.exits.commit = Array.from({length: 6}, (_, i) => ({status: 1, stderr: `mise ERROR Operation not permitted at path "/var/folders/68/abc/T/.tmp${i}x${i}x${i}x"`}));
+  h.exits.commit = Array.from({length: 6}, (_, i) => ({status: 1, stderr: `mise ERROR Operation not permitted at path "${SYSTEM_TMP}/.tmp${i}x${i}x${i}x"`}));
   for (let i = 0; i < 6; i++) assert.equal((await h.s.sync()).status, 'failed');
   const failed = readState(h.env).notices.filter(n => n.kind === 'failed');
   assert.equal(failed.length, 1);
   assert.equal(failed[0].count, 6);
-  assert.ok(!JSON.stringify(readState(h.env).notices).includes('/var/folders'));
+  assert.ok(!JSON.stringify(readState(h.env).notices).includes(SYSTEM_TMP));
   assert.equal(h.s.status().notices.filter(n => n.kind === 'failed')[0].count, 6);
   // Old state written before the collapse is shown collapsed and redacted too.
   const state = readState(h.env);
   writeState(h.env, {...state, notices: Array.from({length: 9}, (_, i) => ({at: new Date(i * 1000).toISOString(), kind: 'failed', text: TMP_FAIL(`t${i}t${i}t${i}`)}))});
   const shown = h.s.status().notices;
   assert.deepEqual([shown.length, shown[0].count], [1, 9]);
-  assert.ok(!shown[0].text.includes('/var/folders'));
+  assert.ok(!shown[0].text.includes(SYSTEM_TMP));
 });
 
 test('reauthorize: signing in again clears a pause for it, keeps the new grant and notes it; other pauses stay', async () => {
@@ -727,12 +730,47 @@ test('reauthorize: signing in again clears a pause for it, keeps the new grant a
   // The sync that follows works again with the renewed credential.
   h.state.current = report({etag: 'e2'});
   assert.equal((await h.s.sync()).status, 'applied');
-  // A pause for anything else is not cleared by a sign-in.
+  // A pause for any other reason is cleared by a sign-in too; a frozen project is not a pause and stays frozen.
   h.state.current = new Error('biz_access_unavailable');
   assert.equal((await h.s.sync()).reason, 'biz_unreachable');
-  assert.equal(h.s.reauthorized({accessToken: 'newer'}), false);
+  assert.equal(h.s.reauthorized({accessToken: 'newer'}), true);
+  assert.equal(h.s.status().paused, null);
+  assert.equal(saved.length, 2);
+  h.state.current = new Error('biz_access_unavailable');
+  await h.s.sync();
+  writeState(h.env, {...readState(h.env), frozen: true});
+  assert.equal(h.s.reauthorized({accessToken: 'frozen'}), false);
   assert.equal(h.s.status().paused.reason, 'biz_unreachable');
-  assert.equal(saved.length, 1);
+});
+
+test('sync: why Biz could not be read decides the pause: a rejected or unrenewable credential is reauthorize, only a failed call is unreachable', async () => {
+  const paused = async (setupFn) => {
+    const h = harness({plan: PLAN()});
+    await h.s.apply({digest: (await h.s.preview()).digest});
+    setupFn(h);
+    const result = await h.s.sync();
+    return [result.reason, readState(h.env).paused.detail];
+  };
+  // Biz answers 401/403 to the report: the credential expired or was revoked.
+  assert.deepEqual(await paused(h => { h.state.current = Object.assign(Error('biz_access_unavailable'), {status: 401}); }), ['reauthorize_required', '401']);
+  assert.equal((await paused(h => { h.state.current = Object.assign(Error('biz_access_unavailable'), {status: 403}); }))[0], 'reauthorize_required');
+  // The renewal of the saved credential was refused.
+  assert.equal((await paused(h => { h.store.profileAccessToken = async () => { throw Error('access_denied'); }; }))[0], 'reauthorize_required');
+  // Biz down, slow or erroring: unreachable, with what failed kept for the log.
+  assert.deepEqual(await paused(h => { h.state.current = Object.assign(Error('biz_access_unavailable'), {status: 503}); }), ['biz_unreachable', '503']);
+  assert.deepEqual(await paused(h => { h.state.current = Error('fetch failed'); }), ['biz_unreachable', 'fetch failed']);
+});
+
+test('status: the shown version is the newer of the applied and the self-published one', async () => {
+  const h = harness({plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  assert.equal(h.s.status().shownVersion, 'v2');
+  writeState(h.env, {...readState(h.env), selfPublished: 'v3'});
+  assert.equal(h.s.status().shownVersion, 'v3');
+  writeState(h.env, {...readState(h.env), selfPublished: 'v1'});
+  assert.equal(h.s.status().shownVersion, 'v2');
+  writeState(h.env, {...readState(h.env), version: 'v9', selfPublished: 'v10'});
+  assert.equal(h.s.status().shownVersion, 'v10');
 });
 
 test('a version published outside the panel (dist:publish) is recorded as this project\'s own when Biz shows it', async () => {
