@@ -56,13 +56,16 @@ function stderrTail(error, max = DETAIL) {
   return text.length > max ? `...${text.slice(-max)}` : text;
 }
 
+const TEMP_PATH = new RegExp(`(?<![\\w.:/~-])/(?:${['var/folders', 'private/var/folders', 'private/tmp', 'tmp'].join('|')})/[^\\s"'\`)\\]]*`, 'g');
+
 /**
- * Absolute machine paths never reach the panel or the state: temporary ones (`/var/folders/.../T/.tmpX`, `/tmp/...`)
- * become `<tmp>`, any other absolute path becomes `<path>`. Relative paths (`state/dist/x`) and URLs are left alone.
+ * Absolute machine paths never reach the panel or the state: those inside a system temporary folder become `<tmp>`,
+ * any other absolute path becomes `<path>`. Relative paths and URLs are left alone. (This file is delivered to other
+ * projects, so it must not spell out a machine path itself: tests/machine-paths.test.cjs checks it.)
  */
 function redactPaths(text) {
   return String(text ?? '')
-    .replace(/(?<![\w.:\/~-])\/(?:var\/folders|private\/var\/folders|private\/tmp|tmp)\/[^\s"'`)\]]*/g, '<tmp>')
+    .replace(TEMP_PATH, '<tmp>')
     .replace(/(?<![\w.:\/~<-])~?\/(?:[\w.@+=,-]+\/)+[\w.@+=,-]*/g, '<path>');
 }
 
@@ -81,6 +84,15 @@ function collapseNotices(notices) {
     out.push(count > 1 ? {...notice, count} : (delete notice.count, notice));
   }
   return out;
+}
+
+/** The newer of two versions like `v3` / `v2.1` (the one that exists when only one does). */
+function newerVersion(a, b) {
+  const parts = value => String(value ?? '').replace(/^v/, '').split('.').map(Number);
+  if (!a || !b) return a || b || null;
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? a : b;
+  return a;
 }
 
 const stateFile = env => path.join(auth.dataDir(env), STATE);
@@ -242,7 +254,10 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     ? mise('run', 'snapshot') : sh('mise', ['exec', '--', 'framework/scripts/snapshot.sh', 'commit']);
 
   async function token() {
-    try { return await store.profileAccessToken(); } catch { throw Error('not_connected'); }
+    try { return await store.profileAccessToken(); } catch (error) {
+      // The renewal was refused: the credential is spent, the person must authorize again. Not "not connected".
+      throw Object.assign(Error(['access_denied', 'invalid_profile_token'].includes(error?.message) ? 'reauthorize_required' : 'not_connected'), {cause: error});
+    }
   }
 
   /** The access report, refusing the answers a change must never rest on. */
@@ -565,12 +580,12 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   }
 
   /**
-   * The person signed in again: keep the new grant for the distribution commands and, when the sync was paused only for
-   * that, resume it. The caller runs `sync()` afterwards. Returns whether it was paused for this reason.
+   * The person signed in again: keep the new grant for the distribution commands and, when the sync was paused (whatever
+   * the reason; a frozen project is not a pause), resume it. The caller runs `sync()` afterwards. Returns whether it was paused.
    */
   function reauthorized(grant) {
     const state = readState(env);
-    if (!state.connected || state.paused?.reason !== 'reauthorize_required') return false;
+    if (!state.connected || state.frozen || !state.paused) return false;
     store.saveProfile(grant);
     save({paused: null});
     notify('reconnected', 'Biz connection renewed; syncing again.');
@@ -617,9 +632,22 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return {frozen: true, removedSecrets: secretNames.length - left.length, pendingSecrets: left.length};
   }
 
+  /**
+   * Why a sync could not read Biz. Biz rejecting the credential (401/403, or a refused renewal) is a credential that
+   * expired or was revoked: sign in again. Only a failure to reach Biz at all (network, timeout, 5xx) is "unreachable".
+   */
+  function pauseReason(error) {
+    if (error?.message === 'reauthorize_required' || [401, 403].includes(error?.status)) return 'reauthorize_required';
+    return error?.message === 'not_connected' ? 'not_connected' : 'biz_unreachable';
+  }
+
   /** Stop without touching anything: record why and tell the person once. */
-  function pause(reason) {
-    save({paused: {reason, at: new Date(now()).toISOString()}});
+  function pause(reason, error) {
+    const cause = error?.cause ?? error;
+    // What failed, for the log and the panel's state (never shown as such): the status or message, without paths.
+    const detail = redactPaths(String(cause?.status ?? cause?.message ?? '')).slice(0, 100);
+    save({paused: {reason, at: new Date(now()).toISOString(), ...(detail ? {detail} : {})}});
+    if (detail) console.error(`Fyso Biz setup: sync paused (${reason}): ${detail}`);
     notify('paused', `Sync paused: ${reason}. Nothing was changed.`);
     return {status: 'paused', reason};
   }
@@ -639,7 +667,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       bearer = await token();
       report = await readReport(bearer);
     } catch (error) {
-      return pause(error.message === 'reauthorize_required' ? 'reauthorize_required' : error.message === 'not_connected' ? 'not_connected' : 'biz_unreachable');
+      return pause(pauseReason(error), error);
     }
     if (report.frozen && !state.version && !state.frozen) {
       // Never received a setup: nothing to freeze or delete, and nothing to apply.
@@ -712,7 +740,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function status() {
     const state = readState(env), grant = store.profileStatus();
     return {connected: Boolean(state.connected) && grant.connected, grant: grant.connected, frozen: state.frozen === true, paused: state.paused || null,
-      publishPaused: state.publishPaused || null, version: state.version ?? null, selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: collapseNotices(state.notices), pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
+      publishPaused: state.publishPaused || null, version: state.version ?? null, shownVersion: newerVersion(state.selfPublished, state.version), selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: collapseNotices(state.notices), pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
   // One change at a time: the sync workflow and the panel must not interleave.

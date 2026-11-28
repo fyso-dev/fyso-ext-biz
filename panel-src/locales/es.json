@@ -306,7 +306,7 @@
     "noAccess": "Todavía no tenés acceso al setup de la organización. Pedile a un administrador que te agregue a un departamento en Fyso Biz.",
     "frozen": "Tu acceso fue revocado: este proyecto es de solo lectura y se quitaron los secretos entregados por el setup.",
     "secretsPending": "Los secretos de la configuración todavía no están cifrados para la clave de esta instalación, por eso no se instalaron: {{names}}. Llegarán solos cuando la persona administradora publique de nuevo.",
-    "paused": "La sincronización está en pausa ({{reason}}); no se cambió nada.",
+    "paused": "La sincronización está en pausa: {{reason}}. No se cambió nada.",
     "connected": "Conectado. Setup {{version}} aplicado.",
     "connectedPublisher": "Conectado. Setup {{version}} publicado por este proyecto.",
     "offered": "La organización ofrece el setup {{version}}.",
