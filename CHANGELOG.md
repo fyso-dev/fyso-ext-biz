@@ -4,6 +4,7 @@ Versions are the Git tags of this repository. Earlier releases are described in 
 
 ## Unreleased
 
+- Fix: `ext-biz-login` (and `ext-biz-publication`) stayed down after process-compose terminated them under host load: they had no restart policy and the readiness probe used the 1s default timeout. They now use `restart: always` and the probe allows 10 seconds, like the framework's own services.
 - Fix: the publish preview failed the framework's `machine_paths` check because a comment in `managed-setup.cjs` spelled out a temporary-folder path. Comments, regexes and tests no longer contain machine paths, and `tests/machine-paths.test.cjs` runs the framework's `check-paths.sh` pattern over every file of the repository (it runs in CI with `mise run test`).
 - Fix: a sync whose credential Biz rejected (401/403) or could not renew was paused as `biz_unreachable`. That is now `reauthorize_required`; `biz_unreachable` is only for a failed call (network, timeout, 5xx), and the pause keeps what failed (`paused.detail`) for the log. Signing in again clears any pause (not a frozen project) and syncs.
 - Fix: every pause reason is shown as a sentence (screen and notices), never as a code. The status line falls back to the newest of the applied and self-published version when Biz's report is unavailable, and a self-published version reads "published by this project" without needing the report's `admin` flag.
