@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {client,collect,endpoint,vision} = require('../extensions/biz/biz.cjs');
+const {client,collect,endpoint,vision,failureOf} = require('../extensions/biz/biz.cjs');
 const text = data=>({content:[{type:'text',text:JSON.stringify(data)}]});
 function fixture({deny=false,sse=false}={}) {
   const calls=[];
@@ -51,4 +51,12 @@ test('optional request failure remains explicit while context succeeds',async()=
 test('nested result limits are explicit instead of silently hiding KRs',async()=>{
   const mcp={initialize:async()=>{},tools:async()=>[{name:'contexto'}],call:async()=>({departamento:{id:'d1'},objetivos:[{id:'o1',keyResults:Array.from({length:101},(_,i)=>({id:String(i)}))}]})};
   const data=await collect(mcp,'d1');assert.equal(data.objectives[0].keyResults.length,100);assert.equal(data.truncated,true);
+});
+
+test('a panel action failure is coded: its own codes stay, an HTTP error keeps its status, anything else is not "could not reach Biz"',()=>{
+  assert.deepEqual(failureOf(Error('connection_failed')),{code:'connection_failed',detail:''});
+  assert.deepEqual(failureOf(Error('uncommitted_changes')),{code:'uncommitted_changes',detail:''});
+  assert.deepEqual(failureOf(Object.assign(Error('Request failed'),{status:503})),{code:'biz_http_error',detail:' (HTTP 503)'});
+  for(const error of [new TypeError('x is not a function'),Error('Command failed: git commit'),Object.assign(Error('weird'),{status:'nope'}),null,undefined])assert.equal(failureOf(error).code,'operation_failed');
+  assert.ok(['biz_http_error','operation_failed'].every(code=>require('../extensions/biz/biz.cjs').ERRORS.includes(code)));
 });

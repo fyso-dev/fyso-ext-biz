@@ -25,16 +25,34 @@ Use only this project's MCP and Dagu. Never inspect or print tokens or use anoth
   if(verified.bot?.name!==NAME || verified.bot.description!==MARKER || !['${FYSO_ROOT}',root].includes(verified.bot.cwd))throw Error('Biz bot verification failed');
   return {botId:result.botId,name:NAME,created:true};
 }
-module.exports={provision};
+// Our own refusals are final, and so is anything a retry cannot fix: an HTTP 4xx from Dagu, Dagu not configured, a run
+// still going after its timeout (another try would wait as long again). What remains (a Bot Architect run that failed
+// with `fetch failed` while the native server was busy, a dropped keep-alive connection) is retried a bounded number
+// of times: `provision` is idempotent, it finds the bot an earlier try made.
+const FINAL=/ambiguous Biz Partner name|belongs to another bot|unexpected Biz bot preview|no available engine|verification failed|\(4\d\d\)|Dagu is not configured|still running after/;
+const MAX_ATTEMPTS=3,MAX_DELAY_MS=10000;
+const isFinal=error=>FINAL.test(String(error?.message))||(Number.isInteger(error?.status)&&error.status>=400&&error.status<500);
+async function provisionWithRetry(options,{attempts=MAX_ATTEMPTS,delayMs=3000,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+  const tries=Math.min(Math.max(1,attempts),MAX_ATTEMPTS),delay=Math.min(Math.max(0,delayMs),MAX_DELAY_MS);
+  for(let attempt=1;;attempt++) {
+    try {return await provision(options);}
+    catch(error) {
+      if(attempt>=tries||isFinal(error))throw error;
+      if(delay>0)await pause(delay*attempt);
+    }
+  }
+}
+module.exports={provision,provisionWithRetry};
 if(require.main===module)(async()=>{
   const fs=require('node:fs'),path=require('node:path'),{execFileSync}=require('node:child_process');
   if(!process.env.FYSO_OMB_PORT || !process.env.FYSO_DATA)throw Error('project environment required');
   const lock=path.join(process.env.FYSO_DATA,'ext/biz/bot.lock');fs.mkdirSync(path.dirname(lock),{recursive:true});fs.mkdirSync(lock);
   try {
     const dagu=require(path.resolve('framework/scripts/dagu-client.cjs')).client();
-    const result=await provision({origin:process.env.FYSO_BIZ_URL,
+    const retry={delayMs:Number.isFinite(Number(process.env.FYSO_BIZ_BOT_RETRY_MS))&&process.env.FYSO_BIZ_BOT_RETRY_MS!==''?Number(process.env.FYSO_BIZ_BOT_RETRY_MS):3000};
+    const result=await provisionWithRetry({origin:process.env.FYSO_BIZ_URL,
       architect:async params=>(await dagu.run('fyso-bot-architect',params,{output:'RESULT',timeoutMs:180000})).output,
       models:async()=>JSON.parse(execFileSync('openmausbot',['models','--json','--port',process.env.FYSO_OMB_PORT],{encoding:'utf8',timeout:30000})),
-    });console.log(JSON.stringify(result));
+    },retry);console.log(JSON.stringify(result));
   } finally {fs.rmdirSync(lock);}
 })().catch(()=>{console.error('Biz Partner setup failed; inspect Bot Architect runs and check for a name conflict.');process.exitCode=1;});

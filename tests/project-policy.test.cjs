@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
+const {harness} = require('./helpers/index.cjs');
 const {expandCapabilities, inventoryOf} = require('../extensions/biz/department-capabilities.cjs');
 
 const env = {
@@ -279,4 +280,75 @@ test('panel behavior is unchanged: it still uses the cookie session', async () =
     access: {capabilities: async () => ['app:panel', 'action:bots:list']}});
   assert.equal(await check(handler, '/api/omb/bots'), 204);
   assert.equal(await check(handler, '/api/omb/bots', {method: 'POST'}), 403);
+});
+
+function policyHarness(t) {
+  const h = harness(t, {grant: false});
+  h.project.writeFile('framework/apps/omb.yaml', 'id: omb\n');
+  h.project.writeFile('framework/apps/dagu.yaml', 'id: dagu\n');
+  h.project.writeFile('extensions/silverbullet/app.yaml', 'id: silverbullet\nurl: https://docs.${FYSO_WEB_DOMAIN}\n');
+  const handler = projectPolicy({...h, now: h.clock.now, profiles: {
+    current: req => ({accessToken: req.headers['remote-user']}),
+    forUser: user => ({accessToken: user}),
+  }});
+  return {...h, handler};
+}
+
+test('host and path authorization by principal', async t => {
+  const {handler, biz, env} = policyHarness(t);
+  const principals = [
+    ['admin', 'admin'],
+    ['member with one department', 'member'],
+    ['member with no departments', 'member', {departments: []}],
+    ['no access (frozen by Biz)', 'noAccess'],
+    ['frozen', 'frozen'],
+    ['reauthorize_required', 'reauthorize'],
+  ];
+  for (const [name, scenario, overrides] of principals) biz.person(name, {scenario, ...overrides});
+
+  // Status columns follow the principal order above.
+  const routes = [
+    ['panel', 'GET', '/',                               [204, 204, 204, 204, 204, 403]],
+    ['panel', 'GET', '/api/omb/bots',                    [204, 204, 403, 204, 204, 403]],
+    ['panel', 'POST', '/api/dagu/dags/invoice/start',     [204, 403, 403, 403, 403, 403]],
+    ['omb', 'GET', '/',                                 [204, 403, 403, 204, 204, 403]],
+    ['omb', 'POST', '/api/chat',                        [204, 403, 403, 403, 403, 403]],
+    ['dagu', 'GET', '/',                                [204, 403, 403, 204, 204, 403]],
+    ['docs', 'HEAD', '/guide',                          [204, 204, 403, 204, 204, 403]],
+    ['biz', 'GET', '/login',                            [204, 204, 204, 403, 403, 403]],
+    ['biz', 'GET', '/callback',                         [204, 204, 204, 403, 403, 403]],
+    ['biz', 'GET', '/',                                 [403, 403, 403, 403, 403, 403]],
+    ['biz', 'GET', '/health',                           [403, 403, 403, 403, 403, 403]],
+    ['biz', 'POST', '/login',                           [403, 403, 403, 403, 403, 403]],
+  ];
+  for (const [sub, method, route, statuses] of routes) {
+    for (const [index, [user]] of principals.entries()) {
+      const expected = statuses[index];
+      const host = `${sub}.${env.FYSO_WEB_DOMAIN}`;
+      await t.test(`${user} · ${method} ${host}${route} → ${expected === 204 ? 'allow' : 'deny'} ${expected}`, async () => {
+        assert.equal(await check(handler, route, {host, method, user}), expected);
+      });
+    }
+  }
+});
+
+test('regression: app hosts such as omb. are allowed with the right capability', async t => {
+  const {handler, biz, env} = policyHarness(t);
+  const request = {host: `omb.${env.FYSO_WEB_DOMAIN}`, method: 'POST'};
+  biz.person('allowed', {capabilities: ['app:panel', 'app:omb'], departments: []});
+  biz.person('denied', {capabilities: ['app:panel', 'app:dagu'], departments: []});
+  assert.equal(await check(handler, '/api/chat', {...request, user: 'allowed'}), 204);
+  assert.equal(await check(handler, '/api/chat', {...request, user: 'denied'}), 403);
+});
+
+test('connector account deletion requires management permission', async t => {
+  const {handler, biz, env} = policyHarness(t);
+  const request = {host: `panel.${env.FYSO_WEB_DOMAIN}`, method: 'DELETE'};
+  const route = '/api/omb/connectors/sheets/accounts/account_1';
+  biz.person('manager', {departments: [], capabilities: [
+    'app:panel', 'action:connectors:manage', 'framework:mcp_servers:catalog',
+  ]});
+  biz.person('reader', {departments: [], capabilities: ['app:panel', 'action:connectors:read']});
+  assert.equal(await check(handler, route, {...request, user: 'manager'}), 204);
+  assert.equal(await check(handler, route, {...request, user: 'reader'}), 403);
 });

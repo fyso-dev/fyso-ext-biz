@@ -109,6 +109,9 @@ _exclude:
   - .gitignore
   - mise.toml
   - package.json
+  - package-lock.json
+  - .env.local-biz.example
+  - vitest.config.mjs
   - scripts
   - tests
   - docs

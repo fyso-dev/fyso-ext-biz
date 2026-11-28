@@ -1,0 +1,9 @@
+{
+  "name": "fyso-ext-biz-e2e-local",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Local end-to-end sweep (see README.md). Not part of the extension.",
+  "devDependencies": {
+    "@playwright/test": "1.61.1"
+  }
+}

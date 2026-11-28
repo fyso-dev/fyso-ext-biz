@@ -91,16 +91,16 @@ function Editor({ brand }: { brand: Brand }) {
   const save = async () => {
     if (!name.trim()) return setError(t('identity.nameRequired'));
     if (!validAccent) return setError(t('identity.accentInvalid'));
-    setSaving(true); setDone(false);
+    setSaving(true); setDone(false); setError(undefined);
     const send = (input: Record<string, unknown>) => action.start({ OP: 'save', SETTINGS_B64: base64Utf8(JSON.stringify(input)) });
     try {
       // Each image is saved in its own run: one workflow parameter holds at most one of them.
-      if (background !== undefined && icon !== undefined && !(await send({ loginBackground: background }))) return;
+      if (background !== undefined && icon !== undefined && !(await send({ loginBackground: background }))) return setError(t('identity.workflowNotStarted'));
       const input: Record<string, unknown> = { name: name.trim(), accent, font, radius };
       if (icon !== undefined) input.icon = icon;
       else if (background !== undefined) input.loginBackground = background;
       const result = await send(input);
-      if (!result) return;
+      if (!result) return setError(t('identity.workflowNotStarted'));
       saved.current = result;
       setIcon(undefined); setBackground(undefined); setDone(true);
       s.reload();

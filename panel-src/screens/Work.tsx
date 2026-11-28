@@ -15,7 +15,7 @@ export function Work() {
   const loadContext = async (id:string) => { const current = ++contextEpoch.current; setContextReady(false); const value = await read<BizSnapshot>(`context?department=${encodeURIComponent(id)}`,async()=>undefined); if (current !== contextEpoch.current) return; if (!value || !Array.isArray(value.departments)) {setError('workError'); return;} setContext(value); setDepartment(value.department || id); setContextReady(true); };
   useEffect(()=>{void load(); void loadContext(''); return ()=>{objectiveEpoch.current++; contextEpoch.current++;};},[]);
   const chooseObjective = async (id:string) => {const current = ++objectiveEpoch.current; setObjective(id); setAnchor(''); setPlan(undefined); if (id) {const p = await read<BizPlan>(`objective?id=${encodeURIComponent(id)}`,async()=>undefined); if (current === objectiveEpoch.current && p?.objectiveId === id) setPlan(p);}};
-  const save = async () => {setBusy(true); setError(''); const result = await config.start({FYSO_BIZ_TARGET:bot}); setBusy(false); if (!result?.ok) setError('workConfigError'); else await load();};
+  const save = async () => {setBusy(true); setError(''); const result = await config.start({FYSO_BIZ_TARGET:bot}); setBusy(false); if (!result?.ok) setError(result ? 'workConfigError' : 'teamErrors.workflow_not_started'); else await load();};
   const create = async (event:React.FormEvent) => {
     event.preventDefault(); if (!contextReady) return; setBusy(true); setError(''); setCreated('');
     const payload = {department, title, instructions, ...(anchor.startsWith('kr:') ? {kr:anchor.slice(3)} : anchor.startsWith('lever:') ? {lever:anchor.slice(6)} : {})};

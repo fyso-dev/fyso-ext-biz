@@ -7,6 +7,7 @@ const {matches, allows, expandCapabilities, inventoryOf, concrete} = require('..
 const {projectAccess} = require('../extensions/biz/project-access.cjs');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
 const {profileSessions} = require('../extensions/biz/profile-session.cjs');
+const {harness} = require('./helpers/index.cjs');
 
 const inventory = {
   extensions: ['biz', 'hub'],
@@ -133,14 +134,15 @@ test('policy: a member runs workflows only with agentes 2', async () => {
   assert.equal(await check(none, '/api/omb/bots'), 403);
 });
 
-test('/profile/access lists the expanded concrete capabilities, no wildcards', async () => {
-  const access = deptAccess(bizReport({departments: dept({agentes: 2, fuentes: 1})}));
-  access.identity = async () => ({subject: 'person-1'});
-  const profiles = profileSessions({env: deptEnv, access, auth: {
-    beginProfile: async () => ({state: 's', url: 'https://biz.test/oauth/authorize?state=s'}),
-    finishProfile: async () => ({accessToken: 'person', expiresAt: Date.now() + 3_600_000}),
-    profileLogout() {},
-  }});
+test('/profile/access lists the expanded concrete capabilities, no wildcards', async t => {
+  const h = harness(t, {grant: false, project: {env: {FYSO_WEB_DOMAIN: 'project.test'}}});
+  h.project.addExtension('hub');
+  h.project.writeFile('project/workflows/hello.yaml', 'name: hello\n');
+  h.biz.scenario('member', bizReport({
+    capabilities: ['app:panel', 'app:mcp', 'mcp:tool:*'],
+    departments: dept({agentes: 2, fuentes: 1}),
+  }));
+  const profiles = profileSessions({env: h.env, now: h.clock.now, access: h.access, auth: h.store, managedSetup: {}});
   const call = async (url, method, cookie) => {
     const out = {};
     await profiles.handle({url, method, headers: {'remote-user': 'ana', cookie}}, {
@@ -148,12 +150,55 @@ test('/profile/access lists the expanded concrete capabilities, no wildcards', a
     return out;
   };
   const login = await call('/profile/login', 'POST');
+  assert.equal(login.status, 303);
   const binding = login.headers['Set-Cookie'].split(';')[0];
-  const done = await call('/profile/callback?state=s&code=c', 'GET', binding);
+  const state = new URL(login.headers.Location).searchParams.get('state');
+  const done = await call(`/profile/callback?${new URLSearchParams({state, code: 'c'})}`, 'GET', binding);
+  assert.equal(done.status, 303);
   const cookie = done.headers['Set-Cookie'][1].split(';')[0];
-  const listed = JSON.parse((await call('/profile/access', 'GET', cookie)).body).capabilities;
+  const response = await call('/profile/access', 'GET', cookie);
+  assert.equal(response.status, 200);
+  const {capabilities: listed} = JSON.parse(response.body);
   for (const id of ['app:panel', 'app:mcp', 'workflow:hello:run', 'page:extension:hub', 'action:extension:hub:configure',
     'page:panel:connectors', 'page:panel:bots', 'action:connectors:read', 'action:feedback:submit']) assert.ok(listed.includes(id), id);
   assert.ok(!listed.includes('action:connectors:manage'));
   assert.ok(!listed.some(capability => capability.includes('*')));
+});
+
+test('regression: a member gets page and action capabilities, not only MCP', async t => {
+  const h = harness(t, {grant: false, project: {env: {FYSO_WEB_DOMAIN: 'project.test'}}});
+  h.project.addExtension('hub');
+  const handler = projectPolicy({...h, now: h.clock.now, profiles: {current: () => ({accessToken: 'member'})}});
+  const {capabilities} = await h.access.report('member');
+  for (const grant of ['app:mcp', 'page:extension:hub', 'action:bots:list']) {
+    assert.ok(capabilities.includes(grant), grant);
+  }
+  assert.equal(await check(handler, '/extensions/hub/panel/index.html'), 204);
+  assert.equal(await check(handler, '/api/omb/bots'), 204);
+  assert.equal(await check(handler, '/api/dagu/dags/hello/start', 'POST'), 403);
+});
+
+test('department levels are combined per area regardless of department order', () => {
+  const departments = [
+    ...dept({objetivos: 2, agentes: 0, fuentes: 1}),
+    ...dept({objetivos: 1, agentes: 2, fuentes: 0}),
+    ...dept({objetivos: '2', agentes: 1, fuentes: -1}),
+  ];
+  const report = {...base, departments};
+  const caps = expand(report);
+  for (const grant of ['action:biz:create-work', 'workflow:hello:run', 'action:connectors:read']) {
+    assert.ok(caps.has(grant), grant);
+  }
+  assert.ok(!caps.has('action:connectors:manage'));
+  assert.deepEqual(expand({...report, departments: [...departments].reverse()}), caps);
+  assert.deepEqual(expand({...report, admin: true}), expand(member({objetivos: 2, agentes: 2, fuentes: 2})));
+});
+
+test('wildcard matching requires a concrete namespace and a string capability', () => {
+  assert.equal(matches(null, 'app:panel'), false);
+  assert.equal(matches('app:*', null), false);
+  assert.equal(matches('*:*', 'app:panel'), false);
+  assert.equal(matches('action:*:read', 'action:wiki:read'), true);
+  assert.equal(matches('action:*:read', 'action:wiki:page:read'), false);
+  assert.equal(matches('action:*:read', 'page:wiki:read'), false);
 });

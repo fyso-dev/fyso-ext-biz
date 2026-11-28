@@ -4,6 +4,8 @@ import { useDaguAction, useStore } from "@fyso/panel";
 import { Loading, Notice, Section } from "../components/ui";
 import type { BizDepartmentSync, BizProposed, BizPublished, BizSyncStatus } from "../api/biz";
 
+import { PLAN_RUN, TEAM_RUN, usePanelAccess, type PanelAccess } from "../api/panel-access";
+
 const TONE:Record<BizDepartmentSync["state"],string> = {synced:"pill-ok", pull:"pill-warn", propose:"pill-warn", proposed:"pill-surface", rejected:"pill-down",
   renamed:"pill-warn", conflict:"pill-down", pending_apply:"pill-warn", unpublished:"pill-surface", absent:"pill-unk"};
 // While a proposal waits for Biz, its decision is read again this often.
@@ -15,7 +17,7 @@ const POLL_MS = 60_000;
  * proposal and decided on Biz, and an accepted one comes down through the team download
  * below (`onPull`). The Biz name always wins (`onRestoreName`).
  */
-export function Departments({onPull, onPublished, onRestoreName, version}:{onPull:(equipoId:string, overwrite:boolean)=>void; onPublished:()=>Promise<void>; onRestoreName:(equipoId:string)=>void; version:number}) {
+export function Departments({onPull, onPublished, onRestoreName, version, access}:{onPull:(equipoId:string, overwrite:boolean)=>void; onPublished:()=>Promise<void>; onRestoreName:(equipoId:string)=>void; version:number; access?:PanelAccess}) {
   const {t} = useTranslation();
   const s = useStore();
   const check = useDaguAction<BizSyncStatus>(s.backend, "ext-biz-team", "result");
@@ -24,24 +26,18 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
   const [status, setStatus] = useState<BizSyncStatus>();
   const [active, setActive] = useState<string>();
   const [message, setMessage] = useState<{department:string; ok:boolean; text:string}>();
-  // Biz-managed access (project-policy.cjs): the person's capabilities; `null` when the
-  // project has no managed access (204) and every action stays as it is.
-  const [granted, setGranted] = useState<Set<string>|null>();
-  useEffect(()=>{
-    const controller = new AbortController();
-    fetch("/api/panel-access", {cache:"no-store", signal:controller.signal}).then(async response => {
-      if (response.status === 204) return setGranted(null);
-      const data = response.ok ? await response.json() : null;
-      setGranted(new Set(Array.isArray(data?.capabilities) ? data.capabilities.filter((c:unknown)=>typeof c === "string") : []));
-    }).catch(()=>{ if (!controller.signal.aborted) setGranted(new Set()); });
-    return ()=>controller.abort();
-  }, []);
-  const can = (capability:string) => granted === null || !!granted?.has(capability);
-
-  const load = async () => { const result = await check.start({FYSO_BIZ_OP:"team-sync"}); setStatus(result ?? {error:"connection_failed"}); };
-  // Checked again after every download or apply below (`version`).
+  const {loading, failed, can} = usePanelAccess(access);
+  // Sync can settle a pending delivery in git, so even the check needs the run grant.
+  const mayCheck = can(TEAM_RUN);
+  const mayPrepare = mayCheck && can(PLAN_RUN);
+  const load = async () => {
+    if (!mayCheck) return;
+    const result = await check.start({FYSO_BIZ_OP:"team-sync"});
+    setStatus(result ?? {error:"workflow_not_started"});
+  };
+  // Checked again after every download or apply below (`version`), once the capabilities are known.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(()=>{ void load(); }, [version]);
+  useEffect(()=>{ void load(); }, [version, mayCheck]);
   const waiting = (status?.departments ?? []).some(d=>d.proposal?.state === "pending");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{ if (!waiting) return; const timer = setInterval(()=>{ if (check.phase !== "running") void load(); }, POLL_MS); return ()=>clearInterval(timer); }, [waiting]);
@@ -51,7 +47,7 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
     setActive(department); setMessage(undefined);
     const result = await publish.start({FYSO_BIZ_OP:"team-publish", FYSO_BIZ_LOCAL_DEPARTMENT:department});
     setActive(undefined);
-    setMessage(result && !result.error ? {department, ok:true, text:t("biz.syncPublished", {version:result.version})} : {department, ok:false, text:error(result?.error)});
+    setMessage(result && !result.error ? {department, ok:true, text:t("biz.syncPublished", {version:result.version})} : {department, ok:false, text:error(result ? result.error : "workflow_not_started")});
     if (result && !result.error) await onPublished();
     void load();
   };
@@ -59,7 +55,7 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
     setActive(d.department); setMessage(undefined);
     const result = await propose.start({FYSO_BIZ_OP:"team-propose", FYSO_BIZ_LOCAL_DEPARTMENT:d.localName ?? d.department, FYSO_BIZ_TEAM:d.equipoId ?? "", FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
     setActive(undefined);
-    setMessage(result && !result.error ? {department:d.department, ok:true, text:t("biz.syncProposed", {version:result.proposal.base})} : {department:d.department, ok:false, text:error(result?.error)});
+    setMessage(result && !result.error ? {department:d.department, ok:true, text:t("biz.syncProposed", {version:result.proposal.base})} : {department:d.department, ok:false, text:error(result ? result.error : "workflow_not_started")});
     void load();
   };
   const busy = check.phase === "running" || publish.phase === "running" || propose.phase === "running";
@@ -67,17 +63,16 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
   const canPropose = status?.proposalsSupported !== false;
 
   return <Section id="biz-sync" title={t("biz.syncTitle")} intro={t("biz.syncIntro")}
-    actions={<button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void load()}>{t("biz.syncRefresh")}</button>}>
-    {!status && <Loading card={false} text={t("biz.syncLoading")} />}
+    actions={<button type="button" className="btn btn-sm btn-soft" disabled={busy || !mayCheck} onClick={()=>void load()}>{t("biz.syncRefresh")}</button>}>
+    {failed && <p className="mute" role="status">{t("biz.permissionsUnavailable")}</p>}
+    {!loading && !failed && !mayCheck && <p className="mute" role="status">{t("biz.syncReadOnly")}</p>}
+    {!status && (loading || mayCheck) && <Loading card={false} text={t("biz.syncLoading")} />}
     {status?.error && <Notice tone="down">{error(status.error)}</Notice>}
     {status && !status.error && status.publishSupported === false && <Notice tone="warn">{t("biz.syncNotSupported")}</Notice>}
     {status && !status.error && !canPropose && <Notice tone="warn">{t("biz.syncProposalsNotSupported")}</Notice>}
     {status && !status.error && !rows.length && <p className="mute">{t("biz.syncEmpty")}</p>}
     {rows.length > 0 && <ul className="biz-sync">{rows.map(d=>{
       const working = active === d.department;
-      // A department Biz manages: proposing needs the team workflow, pulling or renaming applies bots.
-      const mayPropose = !d.managed || can("workflow:ext-biz-team:run");
-      const mayApply = !d.managed || can("workflow:fyso-bots-apply:run");
       const canPublish = status?.publishSupported !== false && !d.managed;
       const proposal = d.proposal;
       return <li key={d.department} className="biz-sync-row">
@@ -98,16 +93,16 @@ export function Departments({onPull, onPublished, onRestoreName, version}:{onPul
         {message?.department === d.department && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
         <div className="connector-actions">
           {working && <span role="status" className="hint">{t(propose.phase === "running" ? "biz.syncProposing" : "biz.syncPublishing")}</span>}
-          {!working && d.state === "unpublished" && canPublish && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendPublish(d.department)}>{t("biz.syncPublish")}</button>}
-          {!working && d.state === "propose" && canPropose && mayPropose && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncPropose")}</button>}
-          {!working && d.state === "pull" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, false)}>{t("biz.syncPull", {version:d.remoteVersion})}</button>}
-          {!working && d.state === "pending_apply" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncApplyPulled")}</button>}
-          {!working && d.state === "rejected" && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
-          {!working && d.localName && d.equipoId && mayApply && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>onRestoreName(d.equipoId!)}>{t("biz.syncRestoreName", {name:d.department})}</button>}
-          {!working && d.state === "renamed" && canPropose && mayPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, false)}>{t("biz.syncProposeName", {name:d.localName})}</button>}
+          {!working && d.state === "unpublished" && canPublish && <button type="button" className="btn btn-sm btn-pri" disabled={busy || !mayCheck} onClick={()=>void sendPublish(d.department)}>{t("biz.syncPublish")}</button>}
+          {!working && d.state === "propose" && canPropose && <button type="button" className="btn btn-sm btn-pri" disabled={busy || !mayCheck} onClick={()=>void sendProposal(d, false)}>{t("biz.syncPropose")}</button>}
+          {!working && d.state === "pull" && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy || !mayPrepare} onClick={()=>onPull(d.equipoId!, false)}>{t("biz.syncPull", {version:d.remoteVersion})}</button>}
+          {!working && d.state === "pending_apply" && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy || !mayPrepare} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncApplyPulled")}</button>}
+          {!working && d.state === "rejected" && d.equipoId && <button type="button" className="btn btn-sm btn-soft" disabled={busy || !mayPrepare} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
+          {!working && d.localName && d.equipoId && <button type="button" className="btn btn-sm btn-pri" disabled={busy || !mayPrepare} onClick={()=>onRestoreName(d.equipoId!)}>{t("biz.syncRestoreName", {name:d.department})}</button>}
+          {!working && d.state === "renamed" && canPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy || !mayCheck} onClick={()=>void sendProposal(d, false)}>{t("biz.syncProposeName", {name:d.localName})}</button>}
           {!working && d.state === "conflict" && d.equipoId && <>
-            {mayApply && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>}
-            {canPropose && mayPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void sendProposal(d, true)}>{t("biz.syncKeepMine")}</button>}
+            <button type="button" className="btn btn-sm btn-soft" disabled={busy || !mayPrepare} onClick={()=>onPull(d.equipoId!, true)}>{t("biz.syncKeepBiz")}</button>
+            {canPropose && <button type="button" className="btn btn-sm btn-soft" disabled={busy || !mayCheck} onClick={()=>void sendProposal(d, true)}>{t("biz.syncKeepMine")}</button>}
           </>}
         </div>
       </li>;

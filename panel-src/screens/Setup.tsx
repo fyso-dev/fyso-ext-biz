@@ -18,19 +18,19 @@ const CHECK_TONE = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ?
 const CHECK_GLYPH = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ? "✓" : /^(failed|error)$/i.test(value) ? "×" : "·";
 
 const NOTICES_SHOWN = 5;
-// Codes the server writes in notices and errors; the person reads a sentence instead.
-const CODES = ["reauthorize_required", "not_connected", "biz_unreachable", "unexpected_empty_response"];
+// Pause reasons currently written by managed-setup.cjs. Sign-in clears all four for a connected, unfrozen project.
+const SIGN_IN_PAUSES = new Set(["reauthorize_required", "not_connected", "biz_unreachable", "unexpected_empty_response"]);
 
 const post = async (op:string, body?:object) => {
   const response = await fetch(`/api/ext/biz/profile/setup/${op}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body ?? {})});
   return response.json().catch(()=>({error:"setup_failed"}));
 };
 
-/** The connection expired: the same sign-in the Connect screen starts (Biz sign-in, consent, back here). */
-function Reauthorize() {
+/** Restart the Biz sign-in and consent flow used by the Connect screen. */
+function Reauthorize({expired}:{expired:boolean}) {
   const {t} = useTranslation();
   return <Notice tone="warn" role="alert">
-    <span>{t("setup.reauthorize")}</span>
+    <span>{t(expired ? "setup.reauthorize" : "setup.reauthorizePaused")}</span>
     <form method="post" action="/api/ext/biz/profile/login" target="_top" className="connector-actions">
       <button type="submit" className="btn btn-sm btn-pri">{t("setup.reauthorizeButton")}</button>
     </form>
@@ -45,7 +45,7 @@ function NoticeRow({n, text}:{n:SetupStatus["notices"][number]; text:string}) {
   return <li className={`row biz-event-${NOTICE_TONE[n.kind] ?? "unk"}`}>
     <span className="biz-event-dot" aria-hidden="true" />
     <span className="biz-event-text">
-      <span className={long && !open ? "biz-event-clamp" : undefined}>{text}</span>
+      <span className={long && !open ? "biz-event-clamp" : undefined} style={{whiteSpace:"pre-line"}}>{text}</span>
       {long && <button type="button" className="btn btn-sm btn-ghost biz-event-more" aria-expanded={open} onClick={()=>setOpen(!open)}>{t(open ? "setup.showLess" : "setup.showMore")}</button>}
     </span>
     {(n.count ?? 1) > 1 && <span className="pill pill-surface biz-event-count" title={t("setup.repeated", {count:n.count})}>×{n.count}</span>}
@@ -79,7 +79,13 @@ export function Setup({access}:{access:BizAccess|null}) {
     setStatus(response?.ok ? await response.json().catch(()=>undefined) : undefined);
   };
   useEffect(()=>{ void load(); }, []);
-  const fail = (code?:string, detail?:string) => code === "reauthorize_required" ? setReauth(true) : setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")}) + (detail ? ` (${detail})` : "")});
+  const errorText = (code:string, fallback:string) => t(`setup.errors.${code}`, {defaultValue:fallback});
+  const diagnostic = (text:string) => errorText(text, "") || text.replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, code=>errorText(code, code));
+  const withDetail = (headline:string, detail?:string) => detail ? `${headline} (${diagnostic(detail)})` : headline;
+  const fail = (code:string, detail?:string) => {
+    if (code === "reauthorize_required") setReauth(true);
+    setMessage({ok:false, text:withDetail(errorText(code, t("setup.errors.setup_failed")), detail)});
+  };
   const run = async (op:string, body?:object, done?:(r:any)=>void) => {
     setBusy(true); setMessage(undefined); setReauth(false); setStale(false); setConflicts([]); setNotInstalled(false);
     const result = await post(op, body);
@@ -102,19 +108,30 @@ export function Setup({access}:{access:BizAccess|null}) {
   const pathList = (items:string[]) => <ul className="biz-files">{items.map(x=><li key={x}><code>{x}</code></li>)}</ul>;
 
   if (!access || noSession) return <ConnectBiz />;
-  if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   if (!status) return <Loading text={t("setup.loading")} />;
+  if (!status.frozen && access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   // What a notice says: the server writes English with codes; the person reads a sentence in their language.
   const reason = (code:string) => t(`setup.codes.${code}`, {defaultValue:t("setup.codes.other")});
   const humanize = (n:SetupStatus["notices"][number]) => {
     const paused = n.kind === "paused" ? /^Sync paused: (\w+)\./.exec(n.text) : null;
     if (paused) return t("setup.noticePaused", {reason:reason(paused[1]!)});
+    if (n.kind === "failed") {
+      const detail = (/^Sync failed \(([\s\S]*)\); the next run tries again$/.exec(n.text)?.[1] ?? n.text).trim();
+      const headline = errorText(detail, "");
+      return t("setup.noticeFailed", {reason:headline || withDetail(t("setup.syncFailed"), detail)});
+    }
+    if (n.kind === "publish_failed") {
+      return withDetail(t("setup.errors.publish_failed"), n.text.replace(/^Could not publish:\s*/, ""));
+    }
     if (n.kind === "reconnected") return t("setup.noticeReconnected");
-    return CODES.reduce((out, code)=>out.replaceAll(code, t(`setup.codes.${code}`)), n.text);
+    return diagnostic(n.text);
   };
   // Biz's answer when there is one; otherwise the newest this project knows (a version it published itself can be newer than the applied one).
   const version = status.bizVersion ?? status.shownVersion ?? status.version;
   const needsReauth = reauth || status.paused?.reason === "reauthorize_required";
+  const canReauthorize = !status.frozen && (reauth || (status.paused && SIGN_IN_PAUSES.has(status.paused.reason)));
+  const {error: checkError, ...checks} = pub?.checks ?? {};
+  const checkLabel = (name:string) => t(`setup.pub.checkNames.${name}`, {defaultValue:t("setup.pub.otherCheck")});
   const notices = [...status.notices].reverse();
 
   const actions = status.connected ? <>
@@ -126,10 +143,10 @@ export function Setup({access}:{access:BizAccess|null}) {
     {status.noAccess && <Notice tone="warn">{t("setup.noAccess")}</Notice>}
     {status.frozen && <Notice tone="down">{t("setup.frozen")}</Notice>}
     {(status.secretsPending?.length ?? 0) > 0 && <Notice tone="warn">{t("setup.secretsPending", {names:status.secretsPending!.join(", ")})}</Notice>}
-    {needsReauth && <Reauthorize />}
-    {status.paused && status.paused.reason !== "reauthorize_required" && <Notice tone="warn">{t("setup.paused", {reason:reason(status.paused.reason)})}</Notice>}
+    {canReauthorize && <Reauthorize expired={needsReauth} />}
+    {status.paused && !(canReauthorize && needsReauth) && <Notice tone="warn">{t("setup.paused", {reason:reason(status.paused.reason)})}</Notice>}
     {status.publishPaused && <Notice tone="warn">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</Notice>}
-    {message && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
+    {message && (!reauth || status.frozen) && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
     {status.connected
       ? <Notice tone="ok">{status.selfPublished && status.selfPublished === version ? t("setup.connectedPublisher", {version}) : t("setup.connected", {version:version ?? "-"})}</Notice>
       : !status.noAccess && !preview && <>
@@ -152,7 +169,7 @@ export function Setup({access}:{access:BizAccess|null}) {
     {pub && <div className="biz-preview-panel" role="group" aria-labelledby="biz-setup-publish">
       <h3 id="biz-setup-publish">{t("setup.pub.title")}</h3>
       {pub.blocked
-        ? <Notice tone="warn" role="alert">{t("setup.pub.blocked", {error:pub.error || Object.entries(pub.checks).filter(([, v])=>v === "failed").map(([k])=>k).join(", ")})}</Notice>
+        ? <Notice tone="warn" role="alert">{t("setup.pub.blocked", {error:diagnostic(pub.error || checkError || "") || Object.entries(checks).filter(([, v])=>v === "failed").map(([k])=>checkLabel(k)).join(", ")})}</Notice>
         : !pub.changed
           ? <Notice tone="info">{t("setup.pub.noChanges")}</Notice>
           : <>
@@ -167,9 +184,9 @@ export function Setup({access}:{access:BizAccess|null}) {
               {pub.recipients && <StatRow label={t(pub.recipients.changed ? "setup.pub.recipientsChanged" : "setup.pub.recipients", {count:pub.recipients.count})} badges={pub.recipients.changed ? <span className="pill pill-warn">{pub.recipients.count}</span> : undefined} />}
             </ul>
           </>}
-      {(Object.keys(pub.checks ?? {}).length > 0 || pub.framework) && <div className="biz-checks" role="group" aria-label={t("setup.pub.checks")}>
+      {(Object.keys(checks).length > 0 || pub.framework) && <div className="biz-checks" role="group" aria-label={t("setup.pub.checks")}>
         <span className="label">{t("setup.pub.checks")}</span>
-        {Object.entries(pub.checks ?? {}).map(([k, v])=><span key={k} className={`pill ${CHECK_TONE(v)}`}><span className="glyph" aria-hidden="true">{CHECK_GLYPH(v)}</span>{k}: {v}</span>)}
+        {Object.entries(checks).map(([k, v])=><span key={k} className={`pill ${CHECK_TONE(v)}`}><span className="glyph" aria-hidden="true">{CHECK_GLYPH(v)}</span>{checkLabel(k)}: {t(`setup.pub.checkStatus.${CHECK_TONE(v)}`)}</span>)}
         {pub.framework && <span className="pill pill-outline">{t("setup.pub.framework", {version:pub.framework})}</span>}
       </div>}
       <div className="connector-actions">

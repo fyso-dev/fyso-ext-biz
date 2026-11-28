@@ -2,6 +2,7 @@ const {feedback} = require('./feedback.cjs');
 const {createHash, randomBytes} = require('node:crypto');
 const {addresses, origin, store} = require('./auth.cjs');
 const {projectAccess, reportOf} = require('./project-access.cjs');
+const {isFrozen} = require('./managed-setup.cjs');
 const {allows, concrete} = require('./department-capabilities.cjs');
 
 const LOGIN_TTL = 10 * 60 * 1000;
@@ -33,7 +34,7 @@ function cookieValue(req, name) {
     .find(part => part.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-const GRANT_FAILURES = new Set(['not_connected', 'reauthorize_required', 'frozen', 'no_access', 'access_required']);
+const OFFLOADED_SETUP_ROUTES = new Set(['preview', 'confirm', 'publish-preview', 'publish', 'merge']);
 const SETUP_OPS = new Map([['status', 'GET'], ['preview', 'POST'], ['publish-preview', 'POST'], ['confirm', 'POST'], ['cancel', 'POST'], ['publish', 'POST'], ['merge', 'POST'], ['disconnect', 'POST']]);
 // Statuses of the codes the setup answers with; anything else is an unexpected failure.
 const SETUP_STATUS = {setup_not_installed: 409, stale_base: 409, merge_conflict: 409, no_access: 403, not_connected: 409, reauthorize_required: 409, frozen: 403, access_required: 403, admin_required: 403, preview_changed: 409, preview_stale: 409, preview_required: 400, framework_update_required: 409, publish_failed: 502, unexpected_response: 502,
@@ -73,7 +74,8 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     }
   }
 
-  const setupOf = () => (managedSetup ??= require('./managed-setup.cjs').setup({env, access}));
+  // The long operations run in a worker thread (setup-offload.cjs): this process also answers the readiness probe.
+  const setupOf = () => (managedSetup ??= require('./setup-offload.cjs').offload(require('./managed-setup.cjs').setup({env, access}), {env}));
 
   async function finishLogin(req, res, url, user) {
     const state = url.searchParams.get('state');
@@ -100,7 +102,10 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     respond(res, 303, {Location: '/#/extensions/biz/overview', 'Set-Cookie': [
       cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
     ]});
-    if (resume) setImmediate(() => { Promise.resolve().then(() => setupOf().sync()).catch(() => {}); });
+    if (resume) setImmediate(async () => {
+      try { await setupOf().sync(); } catch { /* sync records its own failures */ }
+      finally { access.invalidate?.(token.accessToken); }
+    });
   }
 
   async function issueRemoteToken(req, res) {
@@ -143,22 +148,17 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         if (report && !report.reauthorizeRequired) managedSetup.noteReport?.(report);
         return json(200, {...managedSetup.status(), bizVersion: report?.setup?.version ?? null, admin: report?.admin === true, offered: report?.setup ?? null, remoteFrozen: report?.frozen === true, noAccess: report?.frozen === true && !managedSetup.status().version});
       }
-      if (op === 'preview') {
-        // The distribution commands read the grant from disk, so it is kept before the plan is made.
-        auth.saveProfile(session.grant);
-        return json(200, await managedSetup.preview());
+      if (op === 'preview' || op === 'publish-preview') {
+        // The worker keeps the grant under the setup lock, before the distribution commands read it.
+        const {accessToken, refreshToken, clientId, expiresAt} = session.grant;
+        const grant = {accessToken, refreshToken, clientId, expiresAt};
+        return json(200, await (op === 'preview' ? managedSetup.preview({grant}) : managedSetup.publishPreview({grant})));
       }
       if (op === 'confirm') {
         let raw = '';
         for await (const chunk of req) { raw += chunk; if (raw.length > 2048) return json(400, {error: 'invalid_input'}); }
         const {digest} = JSON.parse(raw || '{}');
-        try { return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''})); }
-        finally { access.invalidate?.(session.accessToken); }
-      }
-      if (op === 'publish-preview') {
-        // Like preview, the distribution commands read the grant from disk.
-        auth.saveProfile(session.grant);
-        return json(200, await managedSetup.publishPreview());
+        return json(200, await managedSetup.apply({digest: typeof digest === 'string' ? digest : ''}));
       }
       if (op === 'publish') {
         let raw = '';
@@ -176,10 +176,9 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       access.invalidate?.(session.accessToken);
       return json(200, managedSetup.disconnect());
     } catch (error) {
-      // A cancelled first connect drops the grant it just saved, but only when the grant itself is the problem
-      // (rejected by Biz, or no access). Biz being down or erroring must not make the person sign in again.
-      if (op === 'preview' && !managedSetup.status().connected && (GRANT_FAILURES.has(error.message) || [401, 403].includes(error.status))) auth.profileLogout();
       json(SETUP_STATUS[error.message] || 502, {error: SETUP_STATUS[error.message] ? error.message : 'setup_failed', ...(error.files ? {files: error.files} : {}), ...(typeof error.detail === 'string' && error.detail ? {detail: error.detail.slice(0, 500)} : {})});
+    } finally {
+      if (OFFLOADED_SETUP_ROUTES.has(op)) access.invalidate?.(session.accessToken);
     }
   }
 
@@ -247,13 +246,20 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
         const session = current(req);
         const report = session ? await reportOf(access, session.accessToken)
           : {capabilities: [], admin: false, departments: [], policy: null, reauthorizeRequired: false};
-        // The panel matches capabilities exactly, so wildcard grants (gateway only) are not listed.
-        const capabilities = concrete(report.capabilities);
+        // Keep the framework's exact-match response and resolve Teams' known workflow IDs
+        // with the gateway matcher, including wildcard grants in legacy project mode.
+        const capabilities = new Set(concrete(report.capabilities));
+        for (const workflow of ['ext-biz-team', 'fyso-bots-plan', 'fyso-bots-apply']) {
+          const permission = `workflow:${workflow}:run`;
+          if (report.frozen !== true && !isFrozen(env) && capabilities.has('app:panel') &&
+              allows(report.capabilities, permission)) capabilities.add(permission);
+          else capabilities.delete(permission);
+        }
         res.writeHead(200, {'Cache-Control': 'no-store', 'Content-Type': 'application/json'});
         const remoteCredentialPath = secure && allows(report.capabilities, 'app:mcp')
           ? '/api/ext/biz/profile/mcp-token' : undefined;
         // `departments`, `admin` and `policy` feed the panel's "Your departments" tab; they are display data only.
-        res.end(JSON.stringify({capabilities, remoteCredentialPath, admin: report.admin,
+        res.end(JSON.stringify({capabilities: [...capabilities], remoteCredentialPath, admin: report.admin,
           departments: report.departments, policy: report.policy,
           ...(report.reauthorizeRequired ? {reauthorizeRequired: true} : {})}));
         break;

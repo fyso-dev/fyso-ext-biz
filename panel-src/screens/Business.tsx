@@ -19,16 +19,16 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
   const [data, setData] = useState<BizSnapshot|undefined>(initial);
   const [departments, setDepartments] = useState<BizSnapshot["departments"]>(initial?.departments ?? []);
   const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string>();
   const [open, setOpen] = useState<string>();
   const [plan, setPlan] = useState<BizPlan>();
   const [planLoading, setPlanLoading] = useState(false);
-  const [planError, setPlanError] = useState(false);
+  const [planError, setPlanError] = useState<string>();
   const epoch = useRef(0), planEpoch = useRef(0);
 
   const refresh = async (id:string) => {
     const current = ++epoch.current;
-    setFailed(false); setOpen(undefined); setPlan(undefined); planEpoch.current++;
+    setFailed(undefined); setOpen(undefined); setPlan(undefined); planEpoch.current++;
     // Show what this department looked like last time while the fresh read runs.
     const cached = remembered<BizSnapshot>(`context:${id}`);
     if (cached) { setData(cached); onContext(cached); }
@@ -37,7 +37,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
     const result = await read<BizSnapshot>(`context?department=${encodeURIComponent(id)}`, ()=>action.start({FYSO_BIZ_DEPARTMENT:id}));
     if (current !== epoch.current) return;
     setLoading(false);
-    if (!result || !Array.isArray(result.departments)) { setFailed(true); return; }
+    if (!result || !Array.isArray(result.departments)) { setFailed(result ? "biz.connectionError" : "biz.teamErrors.workflow_not_started"); return; }
     setDepartments(result.departments);
     setData(result); onContext(result);
     remember(`context:${id}`, result); remember(LAST, id);
@@ -48,11 +48,11 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
 
   const readPlan = async (id:string) => {
     if (open === id) { setOpen(undefined); return; }
-    const current = ++planEpoch.current; setOpen(id); setPlan(undefined); setPlanError(false); setPlanLoading(true);
+    const current = ++planEpoch.current; setOpen(id); setPlan(undefined); setPlanError(undefined); setPlanLoading(true);
     const result = await read<BizPlan>(`objective?id=${encodeURIComponent(id)}`, ()=>vision.start({FYSO_BIZ_OBJECTIVE:id}));
     if (current !== planEpoch.current) return;
     setPlanLoading(false);
-    if (!result || result.objectiveId !== id) { setPlanError(true); return; }
+    if (!result || result.objectiveId !== id) { setPlanError(result ? "biz.leversFailed" : "biz.teamErrors.workflow_not_started"); return; }
     setPlan(result);
   };
 
@@ -72,7 +72,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
       <button type="button" className="btn btn-sm btn-soft" disabled={loading} onClick={()=>void refresh(department)}>{t(loading ? "biz.loading" : "biz.refresh")}</button>
     </div>
 
-    {failed && <Notice tone="down">{t("biz.connectionError")}</Notice>}
+    {failed && <Notice tone="down">{t(failed)}</Notice>}
     {!data && !failed && <Loading text={t("biz.loading")} />}
     {data && !data.department && <Empty icon="◎"><p>{t("biz.chooseDepartment")}</p></Empty>}
     {data?.department && <>
@@ -101,7 +101,7 @@ export function Business({onContext}:{onContext:(data:BizSnapshot|undefined)=>vo
           {data.capabilities.levers === "available" && <div className="connector-actions"><button type="button" className="btn btn-sm btn-soft" aria-expanded={open === o.id} disabled={planLoading && open !== o.id} onClick={()=>void readPlan(o.id)}>{t(open === o.id ? "biz.hidePlan" : "biz.readPlan")}</button></div>}
           {open === o.id && <div className="biz-preview">
             {planLoading && <Loading card={false} text={t("biz.loadingPlan")} />}
-            {planError && <Notice tone="down">{t("biz.leversFailed")}</Notice>}
+            {planError && <Notice tone="down">{t(planError)}</Notice>}
             {plan && <>
               <p className="hint">{t(plan.paused ? "biz.paused" : "biz.active")}{plan.pending && ` · ${t("biz.pendingPlan")}`}{plan.checkin && ` · ${t("biz.checkin")}: ${plan.checkin.expectedAt}`}</p>
               {!plan.levers.length && <p className="mute">{t("biz.leversEmpty")}</p>}

@@ -130,6 +130,7 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now, ro
       if (hit && now() - hit.at < REPORT_TTL) return hit.report;
       if (inflight.has(key)) return inflight.get(key);
       const request = this.fetchReport(profileToken).then(report => {
+        if (inflight.get(key) !== request) return report;
         cache.delete(key);
         for (const [k, entry] of cache) if (now() - entry.at >= REPORT_STALE) cache.delete(k);
         while (cache.size >= REPORT_MAX) cache.delete(cache.keys().next().value);
@@ -142,7 +143,7 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now, ro
         const transient = error?.status >= 500 || (error?.status === undefined && error?.message !== 'invalid_biz_access_decision');
         if (hit && now() - hit.at < REPORT_STALE && transient) return hit.report;
         throw error;
-      }).finally(() => inflight.delete(key));
+      }).finally(() => { if (inflight.get(key) === request) inflight.delete(key); });
       inflight.set(key, request);
       return request;
     },
@@ -150,7 +151,9 @@ function projectAccess({env = process.env, transport = fetch, now = Date.now, ro
     /** Forget the cached report of a token (login, logout, revoke, setup changes). */
     invalidate(profileToken) {
       if (typeof profileToken !== 'string' || !profileToken) return;
-      cache.delete(keyOf(profileToken));
+      const key = keyOf(profileToken);
+      cache.delete(key);
+      inflight.delete(key);
     },
 
     async fetchReport(profileToken) {

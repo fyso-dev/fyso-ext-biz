@@ -25,6 +25,7 @@ export function Biz() {
   const [overview, setOverview] = useState<BizOverview|undefined>(()=>remembered<BizOverview>("overview"));
   const [loading, setLoading] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [disconnectError, setDisconnectError] = useState(false);
   const [context, setContext] = useState<BizSnapshot>();
   const [tab, setTab] = useState<Tab>(()=>{ try { return sessionStorage.getItem("biz.tab") === "business" ? "business" : "teams"; } catch { return "teams"; } });
   // Biz-managed access only: the person's departments and framework freedom (null otherwise).
@@ -43,7 +44,7 @@ export function Biz() {
     const result = await read<BizOverview>("teams", ()=>teamsAction.start({FYSO_BIZ_OP:"teams"}));
     if (current !== epoch.current) return;
     setLoading(false);
-    const next:BizOverview = result?.connection ? result : {connection:overview?.connection, error:result?.error ?? "connection_failed"};
+    const next:BizOverview = result?.connection ? result : {connection:overview?.connection, error:result ? result.error ?? "connection_failed" : "workflow_not_started"};
     setOverview(next);
     if (!next.error) remember("overview", next);
   };
@@ -52,11 +53,15 @@ export function Biz() {
   const choose = (next:Tab) => { setTab(next); try { sessionStorage.setItem("biz.tab", next); } catch { /* optional */ } };
   const disconnect = async () => {
     setLeaving(true);
-    await read<BizStatus>("logout", ()=>logoutAction.start({FYSO_BIZ_OP:"logout"}), {method:"POST"});
-    forget(); setOverview(undefined); setContext(undefined); setLeaving(false);
+    setDisconnectError(false);
+    const result = await read<BizStatus>("logout", ()=>logoutAction.start({FYSO_BIZ_OP:"logout"}), {method:"POST"});
+    setLeaving(false);
+    if (!result) { setDisconnectError(true); return; }
+    forget(); setOverview(undefined); setContext(undefined);
     await load();
   };
   const connection = overview?.connection;
+  const activeTab = connection?.connected === false ? "setup" : tab;
   const host = connection?.url ? new URL(connection.url).host : "fyso.biz";
 
   return <main className="page page-wide biz-page">
@@ -69,9 +74,10 @@ export function Biz() {
       </div>}
     </div>
 
+    {disconnectError && <Notice tone="down">{t("biz.teamErrors.workflow_not_started")}</Notice>}
     {s.extensions.status === "error" && <Notice tone="down">{t("biz.configError")} <button type="button" className="btn btn-sm btn-soft" onClick={s.reload}>{t("common.retry")}</button></Notice>}
     {installed && !connection && (overview?.error && !loading
-      ? <Empty icon="!"><p role="alert">{t("biz.connectionError")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></Empty>
+      ? <Empty icon="!"><p role="alert">{t(overview.error === "workflow_not_started" ? "biz.teamErrors.workflow_not_started" : "biz.connectionError")}</p><button type="button" className="btn btn-soft" onClick={()=>void load()}>{t("common.retry")}</button></Empty>
       : <Loading text={t("biz.connecting")} />)}
 
     {installed && connection && !connection.connected && <section className="card biz-hero" aria-labelledby="biz-connect">
@@ -89,26 +95,30 @@ export function Biz() {
       <details className="biz-details"><summary>{t("biz.credentialsTitle")}</summary><p className="hint">{t("biz.credentialsDescription")}</p></details>
     </section>}
 
-    {installed && connection?.connected && <>
+    {installed && (connection?.connected || showSetup) && <>
       <div className="seg biz-tabs" role="tablist" aria-label={t("biz.title")}>
-        <button type="button" role="tab" aria-selected={tab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
-        <button type="button" role="tab" aria-selected={tab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
-        <button type="button" role="tab" aria-selected={tab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
-        {showAccess && <button type="button" role="tab" aria-selected={tab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
-        {showSetup && <button type="button" role="tab" aria-selected={tab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
+        {connection?.connected && <>
+          <button type="button" role="tab" aria-selected={activeTab === "teams"} onClick={()=>choose("teams")}>{t("biz.tabTeams")}</button>
+          <button type="button" role="tab" aria-selected={activeTab === "business"} onClick={()=>choose("business")}>{t("biz.tabBusiness")}</button>
+          <button type="button" role="tab" aria-selected={activeTab === "work"} onClick={()=>choose("work")}>{t("biz.tabWork")}</button>
+          {showAccess && <button type="button" role="tab" aria-selected={activeTab === "access"} onClick={()=>choose("access")}>{t("biz.tabAccess")}</button>}
+        </>}
+        {showSetup && <button type="button" role="tab" aria-selected={activeTab === "setup"} onClick={()=>choose("setup")}>{t("biz.tabSetup")}</button>}
       </div>
       <div className="biz-panel" role="tabpanel">
-      {tab === "setup" && showSetup ? <Setup access={managed?.connected ? access ?? null : null} /> : tab === "access" && showAccess && access ? <Access access={access} /> : tab === "teams"
-        ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
-        : tab === "business" ? <Business onContext={setContext} /> : <Work />}
-      {tab === "teams" && connection.method === "oauth" && <Mail />}
+        {activeTab === "setup" && showSetup ? <Setup access={managed?.connected ? access ?? null : null} /> : connection?.connected && <>
+          {activeTab === "access" && showAccess && access ? <Access access={access} /> : activeTab === "teams"
+            ? <Teams bizUrl={connection.url} teams={overview?.teams} error={overview?.error} loading={loading} reload={load} />
+            : activeTab === "business" ? <Business onContext={setContext} /> : <Work />}
+          {activeTab === "teams" && connection.method === "oauth" && <Mail />}
+        </>}
       </div>
-      {connection.method === "token" && <aside className="card biz-partner" aria-label={t("biz.partnerTitle")}>
+      {connection?.method === "token" && <aside className="card biz-partner" aria-label={t("biz.partnerTitle")}>
         <span className="avatar" aria-hidden="true">B</span>
         <div className="grow"><strong>{t("biz.partnerTitle")}</strong><p className="hint">{t(bizBot ? "biz.partnerReady" : "biz.partnerPending")}</p></div>
         {bizBot && <External href={s.project.data?.urls.omb ?? "#/bots"}>{t("biz.partnerOpen")}</External>}
       </aside>}
-      <p className="note">{t("biz.scope")}</p>
+      {connection?.connected && <p className="note">{t("biz.scope")}</p>}
     </>}
   </main>;
 }

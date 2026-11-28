@@ -60,6 +60,7 @@
     "teamApplied_other": "Listo: {{count}} agentes quedaron en tu proyecto.",
     "teamsFootnote": "Los agentes que traés quedan guardados en el proyecto. Podés cambiarles el modelo o los permisos acá sin perderlos al actualizar.",
     "teamErrors": {
+      "workflow_not_started": "No se pudo iniciar el flujo de trabajo.",
       "connection_failed": "No pudimos comunicarnos con Fyso Business. Probá de nuevo.",
       "not_connected": "Tu sesión con Fyso Business terminó. Volvé a conectar.",
       "access_denied": "Fyso Business no permitió el acceso. Volvé a conectar.",
@@ -85,7 +86,9 @@
       "proposals_not_supported": "Tu Fyso Business todavía no recibe propuestas de cambio.",
       "linked_to_biz": "Este departamento ya está en Biz: sus cambios se envían como propuesta.",
       "not_renamed": "El departamento ya tiene el nombre de Biz.",
-      "not_published": "Este departamento todavía no está en Biz."
+      "not_published": "Este departamento todavía no está en Biz.",
+      "operation_failed": "Algo salió mal en Fyso Business. Probá de nuevo; si sigue pasando, revisá la ejecución del workflow.",
+      "biz_http_error": "Fyso Business respondió con un error. Probá de nuevo más tarde."
     },
     "department": "Departamento",
     "selectDepartment": "Elegí un departamento",
@@ -217,7 +220,10 @@
     "syncManaged": "Fyso Business administra este departamento para este proyecto: los cambios se hacen allí.",
     "syncProposalsNotSupported": "Tu Fyso Business todavía no recibe propuestas de cambio.",
     "tabAccess": "Tus departamentos",
-    "tabSetup": "Setup"
+    "tabSetup": "Setup",
+    "permissionsUnavailable": "No pudimos comprobar tus permisos. Recargá la página para volver a intentarlo.",
+    "teamActionReadOnly": "Tu acceso a esta acción del equipo es de solo lectura.",
+    "syncReadOnly": "Tu acceso a este proyecto es de solo lectura: la sincronización de departamentos la ejecuta quien puede modificar el proyecto."
   },
   "access": {
     "connectTitle": "Conectar Fyso Biz",
@@ -331,7 +337,7 @@
     "errors": {
       "setup_failed": "No se pudo completar el setup. No se quitó nada.",
       "not_connected": "Conectá Fyso Biz primero.",
-      "reauthorize_required": "Tu conexión con Fyso Biz venció. Volvé a autorizar.",
+      "reauthorize_required": "Tu conexión con Fyso Biz venció.",
       "frozen": "Tu acceso fue revocado.",
       "no_access": "Todavía no tenés acceso al setup.",
       "access_required": "No tenés acceso a este proyecto en Fyso Biz.",
@@ -347,7 +353,18 @@
       "preview_stale": "El proyecto cambió después de la vista previa. Revisá la nueva vista previa y confirmá de nuevo.",
       "preview_required": "Revisá la vista previa antes de publicar.",
       "publish_failed": "No se pudo publicar el setup.",
-      "unexpected_response": "No se pudo leer la vista previa del framework."
+      "unexpected_response": "No se pudo leer la vista previa del framework.",
+      "invalid_input": "La solicitud de setup contiene datos no válidos.",
+      "not_found": "Esta acción de setup no está disponible.",
+      "key_unavailable": "No se pudo leer la clave de cifrado de este proyecto.",
+      "invalid_age_key": "La clave de cifrado de este proyecto no es válida.",
+      "biz_access_unavailable": "Fyso Biz no pudo verificar el acceso al proyecto o actualizar los destinatarios.",
+      "invalid_biz_access_decision": "Fyso Biz devolvió un informe de acceso o destinatarios que no se pudo leer.",
+      "profile_required": "Se requiere una sesión de perfil de Fyso Biz.",
+      "biz_access_not_configured": "Falta configurar la organización para el acceso a Fyso Biz.",
+      "invalid_origin": "La dirección del servidor de Fyso Biz no es válida.",
+      "biz_unreachable": "No se pudo consultar Fyso Biz.",
+      "unexpected_empty_response": "Fyso Biz respondió algo inesperado."
     },
     "mergeAndPublish": "Actualizar y fusionar",
     "conflicts": "Archivos en conflicto",
@@ -371,6 +388,16 @@
       "recipients": "Destinatarios: {{count}}",
       "recipientsChanged": "Destinatarios: {{count}} (cambiaron)",
       "checks": "Verificaciones",
+      "checkNames": {
+        "gitleaks": "Búsqueda de secretos",
+        "machine_paths": "Rutas específicas de la máquina"
+      },
+      "otherCheck": "Verificación adicional",
+      "checkStatus": {
+        "pill-ok": "Correcta",
+        "pill-down": "Falló",
+        "pill-unk": "Desconocido"
+      },
       "framework": "Framework {{version}}",
       "added": "Agregados ({{count}})",
       "modified": "Modificados ({{count}})",
@@ -380,6 +407,7 @@
       "close": "Cerrar"
     },
     "reauthorize": "Tu conexión con Fyso Biz venció. Volvé a autorizar para seguir sincronizando.",
+    "reauthorizePaused": "Volvé a autorizar para reanudar la sincronización.",
     "reauthorizeButton": "Volver a autorizar",
     "showMore": "Ver más",
     "showLess": "Ver menos",
@@ -394,6 +422,8 @@
       "other": "motivo desconocido"
     },
     "noticePaused": "Sincronización en pausa: {{reason}}. No se cambió nada.",
+    "syncFailed": "Falló la sincronización.",
+    "noticeFailed": "{{reason}} Se volverá a intentar en la próxima sincronización.",
     "noticeReconnected": "Conexión con Fyso Biz renovada; sincronizando de nuevo."
   }
 }

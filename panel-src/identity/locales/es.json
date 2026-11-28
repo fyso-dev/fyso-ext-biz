@@ -49,6 +49,7 @@
     "backgroundInvalid": "No se pudo usar esa imagen. Probá con un JPG o un PNG.",
     "restartNote": "El panel, los íconos y el fondo del login cambian al guardar. El nombre del login, de Automatizaciones y de Chat de agentes cambia cuando el proyecto se reinicia. La tipografía y las esquinas aplican al panel.",
     "resetAll": "Volver todo a Fyso",
+    "workflowNotStarted": "No se pudo iniciar el flujo de trabajo.",
     "save": "Guardar",
     "saving": "Guardando…",
     "saved": "Guardado. Se versionó en git."

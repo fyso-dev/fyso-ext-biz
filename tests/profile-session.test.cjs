@@ -2,6 +2,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {createHash} = require('node:crypto');
 const {profileSessions} = require('../extensions/biz/profile-session.cjs');
+const {fakeBiz, harness, WINDOWS} = require('./helpers/index.cjs');
 
 const env = {
   FYSO_BIZ_URL: 'https://biz.test',
@@ -30,6 +31,7 @@ async function invoke(profiles, req) {
 
 test('binds the one-time OAuth callback and session to the authenticated browser user', async () => {
   let now = 1000;
+  let capabilities = ['app:panel', 'app:mcp'];
   const invalidated = [];
   const profiles = profileSessions({
     env, now: () => now,
@@ -45,7 +47,7 @@ test('binds the one-time OAuth callback and session to the authenticated browser
     },
     access: {invalidate: token => invalidated.push(token), async capabilities(token) {
       assert.equal(token, 'private-token');
-      return ['app:panel', 'app:mcp'];
+      return capabilities;
     }, async can(token, capability) {
       return token === 'private-token' && capability === 'app:mcp';
     }, async identity(token) {
@@ -77,6 +79,11 @@ test('binds the one-time OAuth callback and session to the authenticated browser
     capabilities: ['app:panel', 'app:mcp'], remoteCredentialPath: '/api/ext/biz/profile/mcp-token',
     admin: false, departments: [], policy: null,
   });
+  const panelGrants = async () => JSON.parse((await invoke(profiles, request('/profile/access', 'ana', {cookie: session}))).body).capabilities;
+  capabilities = ['app:panel', 'workflow:*:run'];
+  assert.deepEqual(await panelGrants(), ['app:panel', 'workflow:ext-biz-team:run', 'workflow:fyso-bots-plan:run', 'workflow:fyso-bots-apply:run']);
+  capabilities = ['app:panel', '*'];
+  assert.deepEqual(await panelGrants(), ['app:panel']);
   const issue = () => invoke(profiles, request('/profile/mcp-token', 'ana', {method: 'POST', cookie: session}));
   const minted = await issue();
   const secret = JSON.parse(minted.body).token.split('.')[1];
@@ -183,19 +190,21 @@ test('the panel shows Setup with a Connect action when managed access has no pro
 
 // The panel's first Connect saves the profile grant before the preview. A failed preview drops it only when
 // the grant is the problem.
-async function failedPreview(error) {
+async function failedPreview(t, error) {
   let logouts = 0;
-  const auth = {saveProfile() {}};
-  const managedSetup = {status: () => ({connected: false}), async preview() { throw error; }};
-  // Seed a session through the real login/callback path.
-  const authLogin = {...auth, async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
+  const {setup} = require('../extensions/biz/managed-setup.cjs');
+  const {tempProject} = require('./helpers/index.cjs');
+  const project = tempProject(t);
+  const authLogin = {saveProfile() {}, profileStatus: () => ({connected: false}), profileLogout: () => { logouts++; },
+    profileAccessToken: async () => 't',
+    async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
     async finishProfile() { return {accessToken: 't', expiresAt: Date.now() + 3600000}; }};
+  const managedSetup = setup({env: project.env, store: authLogin, access: {async report() { throw error; }}});
   const p = profileSessions({env, auth: authLogin, managedSetup, access: {async identity() { return {subject: 'x'}; }}});
   const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
   const binding = login.headers['Set-Cookie'].split(';')[0];
   const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: binding}));
   const session = cb.headers['Set-Cookie'][1].split(';')[0];
-  authLogin.profileLogout = () => { logouts++; };
   const out = await invoke(p, request('/profile/setup/preview', 'ana', {method: 'POST', cookie: session}));
   return {logouts, status: out.status};
 }
@@ -215,10 +224,10 @@ test('the Setup panel previews before publishing and both languages have the pre
 });
 
 // A signed-in browser user and the setup routes with a fake managed setup.
-async function withSession(managedSetup) {
+async function withSession(managedSetup, access = {async identity() { return {subject: 'x'}; }}) {
   const authLogin = {saveProfile() {}, async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
     async finishProfile() { return {accessToken: 't', expiresAt: Date.now() + 3600000}; }};
-  const p = profileSessions({env, auth: authLogin, managedSetup, access: {async identity() { return {subject: 'x'}; }}});
+  const p = profileSessions({env, auth: authLogin, managedSetup, access});
   const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
   const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: login.headers['Set-Cookie'].split(';')[0]}));
   const cookie = cb.headers['Set-Cookie'][1].split(';')[0];
@@ -228,8 +237,22 @@ async function withSession(managedSetup) {
     req[Symbol.asyncIterator] = async function* () { yield raw; };
     return invoke(p, req).then(out => ({...out, json: JSON.parse(out.body)}));
   };
-  return {p, post};
+  return {p, post, status: async () => JSON.parse((await invoke(p, request('/profile/setup/status', 'ana', {cookie}))).body)};
 }
+
+test('regression: the shown version is fresh after a publish through the gateway', async t => {
+  const h = harness(t, {scenario: 'admin'});
+  h.biz.publish('v2');
+  const {post, status} = await withSession({
+    status: () => ({connected: true}),
+    async publish() { h.biz.publish('v3'); return {version: 'v3'}; },
+  }, h.access);
+  assert.equal((await status()).bizVersion, 'v2');
+  const reports = h.biz.count('report');
+  assert.equal((await post('publish', {version: 'v3', digest: 'd'})).status, 200);
+  assert.equal((await status()).bizVersion, 'v3');
+  assert.equal(h.biz.count('report'), reports + 1);
+});
 
 test('publish-preview and publish: only through a profile session; publish passes the preview version and digest back', async () => {
   const seen = [];
@@ -261,11 +284,11 @@ test('publish-preview and publish answer with the codes the panel acts on', asyn
   assert.equal((await post('publish', {})).json.detail, 'tail');
 });
 
-test('a failed preview keeps the grant when Biz is unavailable or errors, and drops it when the grant is rejected', async () => {
-  assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 503}))).logouts, 0);
-  assert.equal((await failedPreview(Error('dist_failed'))).logouts, 0);
-  assert.equal((await failedPreview(Object.assign(Error('biz_access_unavailable'), {status: 401}))).logouts, 1);
-  assert.equal((await failedPreview(Error('reauthorize_required'))).logouts, 1);
+test('a failed preview keeps the grant when Biz is unavailable or errors, and drops it when the grant is rejected', async t => {
+  assert.equal((await failedPreview(t, Object.assign(Error('biz_access_unavailable'), {status: 503}))).logouts, 0);
+  assert.equal((await failedPreview(t, Error('dist_failed'))).logouts, 0);
+  assert.equal((await failedPreview(t, Object.assign(Error('biz_access_unavailable'), {status: 401}))).logouts, 1);
+  assert.equal((await failedPreview(t, Error('reauthorize_required'))).logouts, 1);
 });
 
 test('forUser finds the latest live session of a web user, for hosts that never receive the cookie', async () => {
@@ -341,4 +364,125 @@ test('the Setup panel offers a sign-in when paused for reauthorization, keeps on
   assert.deepEqual(Object.keys(en.codes).sort(), Object.keys(es.codes).sort());
   assert.equal(es.reauthorize, 'Tu conexión con Fyso Biz venció. Volvé a autorizar para seguir sincronizando.');
   for (const text of [en.errors.reauthorize_required, es.errors.reauthorize_required, ...Object.values(en.codes), ...Object.values(es.codes)]) assert.doesNotMatch(text, /reauthorize_required/);
+});
+
+function browserLogin(h, user = 'ana', managedSetup = h.managed) {
+  const profiles = profileSessions({env: h.env, auth: h.store, access: h.access, now: h.clock.now, managedSetup});
+  const begin = async () => {
+    const login = await invoke(profiles, request('/profile/login', user, {method: 'POST'}));
+    assert.equal(login.status, 303);
+    const state = new URL(login.headers.Location).searchParams.get('state');
+    const cookie = login.headers['Set-Cookie'].split(';')[0];
+    return ({includeState = true, ...params} = {code: 'oauth-code'}) => {
+      const query = new URLSearchParams(params);
+      if (includeState) query.set('state', state);
+      return invoke(profiles, request(`/profile/callback?${query}`, user, {cookie}));
+    };
+  };
+  return {profiles, begin};
+}
+
+test('a busy gateway preview leaves the running setup credential in place', async t => {
+  const fs = require('node:fs');
+  const h = harness(t);
+  const {begin, profiles} = browserLogin(h, 'ana', null);
+  const callback = await begin();
+  const signedIn = await callback();
+  const cookie = signedIn.headers['Set-Cookie'][1].split(';')[0];
+  const lock = h.project.path('.data/ext/biz/setup.lock');
+  fs.mkdirSync(lock);
+  const previous = h.project.readProfileGrant();
+  const out = await invoke(profiles, request('/profile/setup/preview', 'ana', {method: 'POST', cookie}));
+  assert.deepEqual([out.status, JSON.parse(out.body).error], [409, 'busy']);
+  assert.deepEqual(h.project.readProfileGrant(), previous);
+});
+
+test('OAuth callback rejects missing and expired state before exchanging the code', async t => {
+  const h = harness(t, {grant: false});
+  const {begin, profiles} = browserLogin(h);
+  const callback = await begin();
+  const missing = await callback({includeState: false, code: 'oauth-code'});
+  assert.equal(missing.status, 400);
+  assert.equal(missing.headers['Set-Cookie'], undefined);
+  h.clock.advance(WINDOWS.LOGIN_TTL_MS);
+  assert.equal((await callback()).status, 400);
+  assert.equal(h.biz.count('oauth.token'), 0);
+  assert.equal(h.biz.count('identity'), 0);
+  assert.equal(profiles.forUser('ana'), null);
+});
+
+test('profile cookies are host-only on HTTPS and local HTTP', async t => {
+  for (const scheme of ['https', 'http']) {
+    await t.test(scheme, async st => {
+      const h = harness(st, {project: {env: {FYSO_WEB_SCHEME: scheme, FYSO_HTTP_PORT: '8080'}}});
+      const {begin, profiles} = browserLogin(h);
+      const callback = await begin();
+      const result = await callback();
+      assert.equal(result.status, 303);
+      const [clear, session] = result.headers['Set-Cookie'];
+      const flags = ['Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=3600'];
+      if (scheme === 'https') flags.push('Secure');
+      const [pair, ...attributes] = session.split('; ');
+      const prefix = scheme === 'https' ? '__Host-' : '';
+      assert.equal(pair.split('=')[0], `${prefix}fyso_biz_profile`);
+      assert.deepEqual(attributes, flags);
+      assert.doesNotMatch(session, /;\s*Domain=/i);
+      assert.match(clear, /Max-Age=0(?:;|$)/);
+      const profile = await invoke(profiles, request('/profile/status', 'ana', {cookie: pair}));
+      assert.deepEqual(JSON.parse(profile.body), {connected: true});
+      const mcp = await invoke(profiles, request('/profile/mcp-token', 'ana', {method: 'POST', cookie: pair}));
+      if (scheme === 'http') assert.equal(mcp.status, 403);
+    });
+  }
+});
+
+test('forUser skips a newer short-lived session and returns the older live session', async t => {
+  const h = harness(t);
+  const {begin, profiles} = browserLogin(h);
+  const older = await begin();
+  assert.equal((await older()).status, 303);
+  const newer = await begin();
+  h.biz.queue('oauth.token', fakeBiz.ok({access_token: 'short-lived', token_type: 'Bearer', expires_in: 2}));
+  assert.equal((await newer()).status, 303);
+  assert.equal(profiles.forUser('ana').accessToken, 'short-lived');
+  h.clock.advance(2_000);
+  assert.equal(profiles.forUser('ana').accessToken, 'access-1');
+  h.clock.advance(WINDOWS.SESSION_TTL_MS - 2_000);
+  assert.equal(profiles.forUser('ana'), null);
+});
+
+test('sign-in saves the replacement credential and resumes the paused setup sync', async t => {
+  const h = harness(t);
+  h.connect({version: 'v2', etag: h.biz.etag});
+  h.biz.revoke('profile-token');
+  assert.deepEqual(await h.managed.sync(), {status: 'paused', reason: 'reauthorize_required'});
+  h.biz.publish('v3');
+
+  // Observe completion of the real sync triggered by the callback.
+  let sync;
+  const managedSetup = {...h.managed, sync() { return sync = h.managed.sync(); }};
+  const {begin} = browserLogin(h, 'ana', managedSetup);
+  const callback = await begin();
+  assert.equal((await callback()).status, 303);
+  assert.equal(h.managed.status().paused, null);
+  assert.equal(h.project.readProfileGrant().accessToken, 'access-1');
+  assert.equal(sync, undefined);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(sync, 'the callback scheduled a sync');
+  assert.equal((await sync).status, 'applied');
+  assert.equal(h.biz.last('report').token, 'access-1');
+  assert.equal(h.project.readState().version, 'v3');
+});
+
+test('OAuth denial and credentials with less than a second of life cannot start a session', async t => {
+  const h = harness(t, {grant: false});
+  const {begin, profiles} = browserLogin(h);
+  const denied = await begin();
+  assert.equal((await denied({error: 'access_denied'})).status, 403);
+  assert.equal(h.biz.count('oauth.token'), 0);
+
+  const short = await begin();
+  h.biz.queue('oauth.token', fakeBiz.ok({access_token: 'short-lived', token_type: 'Bearer', expires_in: 0.5}));
+  assert.equal((await short()).status, 403);
+  assert.equal(profiles.forUser('ana'), null);
 });

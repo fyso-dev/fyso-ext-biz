@@ -27,9 +27,9 @@ function server({refresh = true} = {}) {
 }
 
 test('accepts HTTPS origins and HTTP only on loopback', () => {
-  assert.equal(origin('https://fyso.biz'), 'https://fyso.biz');
+  assert.equal(origin('https://biz.example'), 'https://biz.example');
   assert.equal(origin('http://localhost:8787'), 'http://localhost:8787');
-  for (const bad of ['http://fyso.biz', 'https://u:p@fyso.biz', 'https://fyso.biz/api', 'ftp://localhost', 'nope']) assert.throws(() => origin(bad), {message: 'invalid_origin'});
+  for (const bad of ['http://biz.example', 'https://u:p@biz.example', 'https://biz.example/api', 'ftp://localhost', 'nope']) assert.throws(() => origin(bad), {message: 'invalid_origin'});
 });
 
 test('callback and page addresses follow the project gateway', () => {
@@ -87,8 +87,8 @@ test('refuses authorization servers on another origin', async () => {
 
 test('OAuth grants use the provider MCP route; personal tokens keep /api/mcp', () => {
   const {endpoint} = require('../extensions/biz/biz.cjs');
-  assert.equal(endpoint('https://fyso.biz'), 'https://fyso.biz/api/mcp');
-  assert.equal(endpoint('https://fyso.biz', true), 'https://fyso.biz/mcp');
+  assert.equal(endpoint('https://biz.example'), 'https://biz.example/api/mcp');
+  assert.equal(endpoint('https://biz.example', true), 'https://biz.example/mcp');
 });
 
 test('profile sign-in has its own registration and does not replace the agent grant', async (t) => {
@@ -107,4 +107,28 @@ test('profile sign-in has its own registration and does not replace the agent gr
   assert.equal(await auth.accessToken(), 'access-1');
   assert.equal(calls.filter(c => c.url.endsWith('/oauth/register')).length, 2);
   assert.ok(fs.existsSync(path.join(e.FYSO_DATA, 'ext/biz/profile-client.json')));
+});
+
+test('profile OAuth failures report the failing step without saving a grant', async t => {
+  const {fakeBiz, harness} = require('./helpers/index.cjs');
+  const h = harness(t, {grant: false});
+  const callback = 'https://panel.example.test/callback';
+
+  h.biz.queue('oauth.metadata', fakeBiz.networkError(), fakeBiz.http(503));
+  await assert.rejects(h.store.beginProfile(callback), {message: 'connection_failed'});
+  await assert.rejects(h.store.beginProfile(callback), {message: 'oauth_not_supported'});
+  h.biz.queue('oauth.register', fakeBiz.networkError(), fakeBiz.http(403));
+  await assert.rejects(h.store.beginProfile(callback), {message: 'connection_failed'});
+  await assert.rejects(h.store.beginProfile(callback), {message: 'registration_failed'});
+
+  const pending = await h.store.beginProfile(callback);
+  for (const code of [null, 123, 'x'.repeat(2001)]) {
+    await assert.rejects(h.store.finishProfile(pending, code), {message: 'invalid_callback'});
+  }
+  assert.equal(h.biz.count('oauth.token'), 0);
+  h.biz.queue('oauth.token', fakeBiz.networkError(), fakeBiz.http(503), fakeBiz.ok({access_token: 'token', token_type: 'Bearer', expires_in: 0}));
+  await assert.rejects(h.store.finishProfile(pending, 'code'), {message: 'connection_failed'});
+  await assert.rejects(h.store.finishProfile(pending, 'code'), {message: 'remote_unavailable'});
+  await assert.rejects(h.store.finishProfile(pending, 'code'), {message: 'invalid_profile_token'});
+  assert.deepEqual(h.store.profileStatus(), {connected: false});
 });
