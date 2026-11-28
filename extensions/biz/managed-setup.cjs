@@ -48,12 +48,39 @@ const pauseFor = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0,
 
 /** The last part of a failed command's stderr, without anything that looks like a secret. */
 function stderrTail(error, max = DETAIL) {
-  const text = String(error?.stderr ?? '').replace(/\u001b\[[0-9;]*m/g, '')
+  const text = redactPaths(String(error?.stderr ?? '').replace(/\u001b\[[0-9;]*m/g, ''))
     .replace(/AGE-SECRET-KEY-[A-Z0-9]+/g, '[redacted]')
     .replace(/\b((?:token|password|passwd|secret|api[_-]?key|authorization|bearer)\w*\s*[=:]\s*)\S+/gi, '$1[redacted]')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
     .replace(/\s+/g, ' ').trim();
   return text.length > max ? `...${text.slice(-max)}` : text;
+}
+
+/**
+ * Absolute machine paths never reach the panel or the state: temporary ones (`/var/folders/.../T/.tmpX`, `/tmp/...`)
+ * become `<tmp>`, any other absolute path becomes `<path>`. Relative paths (`state/dist/x`) and URLs are left alone.
+ */
+function redactPaths(text) {
+  return String(text ?? '')
+    .replace(/(?<![\w.:\/~-])\/(?:var\/folders|private\/var\/folders|private\/tmp|tmp)\/[^\s"'`)\]]*/g, '<tmp>')
+    .replace(/(?<![\w.:\/~<-])~?\/(?:[\w.@+=,-]+\/)+[\w.@+=,-]*/g, '<path>');
+}
+
+/** What makes two notices "the same": kind plus the message without numbers, temp names or paths. */
+const noticeKey = notice => `${notice.kind}\u0000${redactPaths(notice.text).replace(/\.tmp\w+/g, '.tmp').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()}`;
+
+/** Consecutive identical notices become one (the latest text and time) with `count`; paths are redacted. Safe to apply twice. */
+function collapseNotices(notices) {
+  const out = [];
+  for (const raw of Array.isArray(notices) ? notices : []) {
+    if (!raw || typeof raw.kind !== 'string' || typeof raw.text !== 'string') continue;
+    const notice = {...raw, text: redactPaths(raw.text)};
+    const count = Number.isInteger(raw.count) && raw.count > 0 ? raw.count : 1;
+    const last = out.at(-1);
+    if (last && noticeKey(last) === noticeKey(notice)) { last.at = notice.at; last.text = notice.text; last.count = (last.count || 1) + count; continue; }
+    out.push(count > 1 ? {...notice, count} : (delete notice.count, notice));
+  }
+  return out;
 }
 
 const stateFile = env => path.join(auth.dataDir(env), STATE);
@@ -203,12 +230,11 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   };
 
   const save = patch => { const state = {...readState(env), ...patch}; writeState(env, state); return state; };
-  /** A notice for the panel (and the workflow log); the same one is not repeated back to back. */
+  /** A notice for the panel (and the workflow log); the same one back to back is counted, not repeated. */
   function notify(kind, text) {
-    const state = readState(env), last = (state.notices || []).at(-1);
+    const state = readState(env);
     console.error(`Fyso Biz setup: ${kind}: ${text}`);
-    if (last && last.kind === kind && last.text === text) return;
-    save({notices: [...(state.notices || []), {at: new Date(now()).toISOString(), kind, text}].slice(-NOTICES)});
+    save({notices: collapseNotices([...(state.notices || []), {at: new Date(now()).toISOString(), kind, text}]).slice(-NOTICES)});
   }
   // A project that never started has no bots or memory in OpenMausBot yet: git is the state (as dist.sh
   // does before the first `up`), so only the commit step runs. Once started, the full snapshot is required.
@@ -516,6 +542,41 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return published;
   }
 
+  /** The version `.copier-answers.dist.yml` records as installed here (a publisher records what it published), from the file only. */
+  function recordedVersion() {
+    try { return /^_commit:\s*['"]?(v\d+(?:\.\d+){0,2})['"]?\s*$/m.exec(fs.readFileSync(path.join(root, '.copier-answers.dist.yml'), 'utf8'))?.[1] ?? null; } catch { return null; }
+  }
+
+  /** A publisher is a project that publishes to Biz (`repo: biz` in project/distribution.yaml). */
+  function isPublisher() {
+    try { return /^repo:\s*['"]?biz['"]?\s*(#.*)?$/m.test(fs.readFileSync(path.join(root, 'project/distribution.yaml'), 'utf8')); } catch { return false; }
+  }
+
+  /**
+   * A publisher can publish outside the panel (`mise run dist:publish`): when Biz's current version is the one this
+   * project recorded as installed by publishing, it is this project's own, so a sync does not replace its files.
+   */
+  function noteReport(report) {
+    const version = report?.setup?.version;
+    if (!version || report.frozen || readState(env).selfPublished === version) return false;
+    if (!isPublisher() || recordedVersion() !== version) return false;
+    save({selfPublished: version});
+    return true;
+  }
+
+  /**
+   * The person signed in again: keep the new grant for the distribution commands and, when the sync was paused only for
+   * that, resume it. The caller runs `sync()` afterwards. Returns whether it was paused for this reason.
+   */
+  function reauthorized(grant) {
+    const state = readState(env);
+    if (!state.connected || state.paused?.reason !== 'reauthorize_required') return false;
+    store.saveProfile(grant);
+    save({paused: null});
+    notify('reconnected', 'Biz connection renewed; syncing again.');
+    return true;
+  }
+
   /** Names of the secrets the distribution delivered: the keys of its (encrypted) file, plus what earlier plans listed. */
   function deliveredSecrets(state) {
     let fromFile = [];
@@ -624,6 +685,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
         } else notify('publish_failed', `Could not publish: ${error.detail || describe(error)}`.slice(0, 500));
       }
     }
+    noteReport(report);
     const latest = readState(env);
     if (latest.etag === report.etag) {
       if (latest.paused) save({paused: null});
@@ -650,7 +712,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   function status() {
     const state = readState(env), grant = store.profileStatus();
     return {connected: Boolean(state.connected) && grant.connected, grant: grant.connected, frozen: state.frozen === true, paused: state.paused || null,
-      publishPaused: state.publishPaused || null, version: state.version ?? null, selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: state.notices || [], pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
+      publishPaused: state.publishPaused || null, version: state.version ?? null, selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: collapseNotices(state.notices), pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
   // One change at a time: the sync workflow and the panel must not interleave.
@@ -665,10 +727,10 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     try { return await fn(...args); } finally { fs.rmSync(lock, {recursive: true, force: true}); }
   };
 
-  return {preview, apply: exclusive(apply), disconnect, publishPreview: exclusive(publishPreview), publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf};
+  return {preview, apply: exclusive(apply), disconnect, publishPreview: exclusive(publishPreview), publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf, noteReport, reauthorized};
 }
 
-module.exports = {setup, stderrTail, publishPreviewOf, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};
+module.exports = {setup, redactPaths, collapseNotices, stderrTail, publishPreviewOf, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};
 
 if (require.main === module) (async () => {
   const command = process.argv[2];

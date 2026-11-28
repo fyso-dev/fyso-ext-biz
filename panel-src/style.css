@@ -142,3 +142,6 @@ ol.biz-benefits li::before { content: counter(biz-step); width: 20px; height: 20
 /* Form labels: the panel's .label scale; the control keeps the body weight. */
 .biz-page label.field { font-size: 13px; font-weight: 700; }
 .biz-page label.field > .input, .biz-page label.field > .select { font-size: 14px; font-weight: 400; }
+.biz-event-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.biz-event-more { display: block; padding: 0; margin-top: 2px; }
+.biz-event-count { flex-shrink: 0; }

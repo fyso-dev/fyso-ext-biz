@@ -327,12 +327,11 @@
     "applied": "Setup aplicado.",
     "publish": "Publicar el setup de este proyecto",
     "published": "Setup publicado.",
-    "disconnect": "Desconectar",
     "notices": "Avisos recientes",
     "errors": {
       "setup_failed": "No se pudo completar el setup. No se quitó nada.",
       "not_connected": "Conectá Fyso Biz primero.",
-      "reauthorize_required": "Reconectá Fyso Biz.",
+      "reauthorize_required": "Tu conexión con Fyso Biz venció. Volvé a autorizar.",
       "frozen": "Tu acceso fue revocado.",
       "no_access": "Todavía no tenés acceso al setup.",
       "access_required": "No tenés acceso a este proyecto en Fyso Biz.",
@@ -379,6 +378,22 @@
       "confirm": "Confirmar publicación",
       "cancel": "Cancelar",
       "close": "Cerrar"
-    }
+    },
+    "reauthorize": "Tu conexión con Fyso Biz venció. Volvé a autorizar para seguir sincronizando.",
+    "reauthorizeButton": "Volver a autorizar",
+    "showMore": "Ver más",
+    "showLess": "Ver menos",
+    "showAll": "Ver todos ({{count}})",
+    "showFewer": "Ver menos avisos",
+    "repeated": "Se repitió {{count}} veces",
+    "codes": {
+      "reauthorize_required": "tu conexión con Fyso Biz venció",
+      "not_connected": "Fyso Biz no está conectado",
+      "biz_unreachable": "no se pudo consultar Fyso Biz",
+      "unexpected_empty_response": "Fyso Biz respondió algo inesperado",
+      "other": "motivo desconocido"
+    },
+    "noticePaused": "Sincronización en pausa: {{reason}}. No se cambió nada.",
+    "noticeReconnected": "Conexión con Fyso Biz renovada; sincronizando de nuevo."
   }
 }

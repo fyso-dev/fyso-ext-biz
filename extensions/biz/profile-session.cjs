@@ -73,6 +73,8 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     }
   }
 
+  const setupOf = () => (managedSetup ??= require('./managed-setup.cjs').setup({env, access}));
+
   async function finishLogin(req, res, url, user) {
     const state = url.searchParams.get('state');
     const entry = pending.get(state);
@@ -91,9 +93,14 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
     const id = random();
     access.invalidate?.(token.accessToken);
     sessions.set(id, {...identity, user, accessToken: token.accessToken, grant: token, expiresAt: now() + ttl});
+    // A sync paused because the credential expired resumes with the new one: the pause is cleared before the
+    // redirect lands, the sync itself runs right after the response (the panel only needs the state to refresh).
+    let resume = false;
+    try { resume = setupOf().reauthorized?.(token) === true; } catch { /* the sign-in itself succeeded */ }
     respond(res, 303, {Location: '/#/extensions/biz/overview', 'Set-Cookie': [
       cookie(bindingCookie, '', 0), cookie(sessionCookie, id, ttl),
     ]});
+    if (resume) setImmediate(() => { Promise.resolve().then(() => setupOf().sync()).catch(() => {}); });
   }
 
   async function issueRemoteToken(req, res) {
@@ -129,11 +136,12 @@ function profileSessions({env = process.env, auth = store({env}), access = proje
       res.end(JSON.stringify(body));
     };
     if (!session) return respond(res, 403);
-    managedSetup ??= require('./managed-setup.cjs').setup({env, access});
+    setupOf();
     try {
       if (op === 'status') {
         const report = await reportOf(access, session.accessToken).catch(() => null);
-        return json(200, {...managedSetup.status(), admin: report?.admin === true, offered: report?.setup ?? null, remoteFrozen: report?.frozen === true, noAccess: report?.frozen === true && !managedSetup.status().version});
+        if (report && !report.reauthorizeRequired) managedSetup.noteReport?.(report);
+        return json(200, {...managedSetup.status(), bizVersion: report?.setup?.version ?? null, admin: report?.admin === true, offered: report?.setup ?? null, remoteFrozen: report?.frozen === true, noAccess: report?.frozen === true && !managedSetup.status().version});
       }
       if (op === 'preview') {
         // The distribution commands read the grant from disk, so it is kept before the plan is made.
