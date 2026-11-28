@@ -10,6 +10,7 @@
 // skipped, so running the hook again changes nothing.
 const fs = require('node:fs'), path = require('node:path'), {execFileSync} = require('node:child_process');
 const sync = require('./teams-sync.cjs');
+const biz = require('./biz.cjs');
 
 const OWNER = 'biz';
 const ERRORS = ['managed_bots_not_supported', 'managed_teams_not_supported', 'organization_mismatch', 'project_not_assigned',
@@ -179,7 +180,6 @@ module.exports = {OWNER, ERRORS, configured, deliver, managedBots, panelActions}
 
 if (require.main === module) (async () => {
   if (!configured()) return;
-  const biz = require('./biz.cjs');
   let credential;
   try { credential = await biz.token(); } catch (error) {
     // Managed access connects with the person's profile grant, so a project that has not connected has no
@@ -197,7 +197,12 @@ if (require.main === module) (async () => {
   else if (result.unreadable) console.error('Fyso Biz: managed teams: the access report could not be read; nothing was removed');
   console.log(JSON.stringify(result));
 })().catch(error => {
-  const code = ERRORS.includes(error.message) || sync.ERRORS.includes(error.message) ? error.message : 'connection_failed';
-  console.error(`Fyso Biz: managed teams failed: ${code}${error.department ? ` (${error.department})` : ''}`);
+  const {stderrTail} = require('./managed-setup.cjs');
+  const http = Number.isInteger(error.status) && error.status >= 400 && error.status <= 599;
+  const code = http ? 'biz_http_error' : [ERRORS, sync.ERRORS, biz.ERRORS].some(codes => codes.includes(error.message))
+    ? error.message : 'managed_teams_failed';
+  const remoteCode = error.bizCode ?? (Number.isInteger(error.rpc?.code) ? error.rpc.code : null);
+  const detail = [http ? `HTTP ${error.status}` : null, remoteCode, error.department].filter(Boolean).join(', ');
+  console.error(`Fyso Biz: managed teams failed: ${code}${detail ? ` (${stderrTail({stderr: detail})})` : ''}`);
   process.exitCode = 1;
 });

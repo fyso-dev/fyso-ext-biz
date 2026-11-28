@@ -15,6 +15,26 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const auth = require('./auth.cjs');
+const {writePrivate} = require('./atomic-write.cjs');
+
+// Linux start ticks and boot ID distinguish a reused PID. Where procfs is
+// unavailable, an existing PID is conservatively treated as the owner.
+function processStart(pid) {
+  if (process.platform !== 'linux') return undefined;
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const ticks = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    const boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+    if (ticks && boot) return `${boot}:${ticks}`;
+  } catch { /* procfs may be unavailable */ }
+}
+
+function ownerIsAlive({pid, start}) {
+  try { process.kill(pid, 0); }
+  catch (error) { return error.code !== 'ESRCH'; }
+  const current = start && processStart(pid);
+  return !current || start === current;
+}
 
 const STATE = 'setup.json';
 const NOTICES = 20;
@@ -26,6 +46,7 @@ const KEEP_EXTENSIONS = new Set(['biz']);
 const ERRORS = ['no_access', 'not_connected', 'reauthorize_required', 'frozen', 'access_required', 'admin_required', 'preview_changed',
   'dist_failed', 'key_unavailable', 'invalid_age_key', 'biz_access_unavailable', 'invalid_biz_access_decision', 'profile_required',
   'unexpected_response', 'busy', 'preview_stale', 'preview_required', 'framework_update_required', 'publish_failed'];
+const GRANT_FAILURES = new Set(['not_connected', 'reauthorize_required', 'frozen', 'no_access', 'access_required']);
 // Errors the publish flow answers with as they are; anything else becomes `publish_failed` with the command's stderr tail.
 const PUBLISH_CODES = new Set([...ERRORS, 'stale_base', 'setup_not_installed', 'merge_conflict']);
 const KEY_RETRY_MS = 1500;
@@ -50,8 +71,8 @@ const pauseFor = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0,
 function stderrTail(error, max = DETAIL) {
   const text = redactPaths(String(error?.stderr ?? '').replace(/\u001b\[[0-9;]*m/g, ''))
     .replace(/AGE-SECRET-KEY-[A-Z0-9]+/g, '[redacted]')
-    .replace(/\b((?:token|password|passwd|secret|api[_-]?key|authorization|bearer)\w*\s*[=:]\s*)\S+/gi, '$1[redacted]')
     .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b((?:token|password|passwd|secret|api[_-]?key|authorization|bearer)\w*\s*[=:]\s*)\S+/gi, '$1[redacted]')
     .replace(/\s+/g, ' ').trim();
   return text.length > max ? `...${text.slice(-max)}` : text;
 }
@@ -105,11 +126,7 @@ function readState(env = process.env) {
 }
 
 function writeState(env, state) {
-  const file = stateFile(env);
-  fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state), {mode: 0o600});
-  fs.renameSync(tmp, file);
+  writePrivate(stateFile(env), state);
 }
 
 /** Whether this project is frozen (the person lost access). Read by both policy checks. */
@@ -129,7 +146,7 @@ const LIST_MAX = 2000, ITEM_MAX = 300;
 const list = value => (Array.isArray(value) ? value : []).filter(item => typeof item === 'string').map(item => item.slice(0, ITEM_MAX)).slice(0, LIST_MAX);
 const isLists = (value, keys) => value && typeof value === 'object' && keys.every(key => Array.isArray(value[key]));
 
-/** The `dist:publish --dry-run --json` answer, checked and reduced to the fields the panel shows; null when it is not that. */
+/** The `dist:publish --dry-run --json` answer, checked and reduced to the preview fields; null when it is not that. */
 function publishPreviewOf(raw) {
   if (!raw || typeof raw !== 'object' || typeof raw.version !== 'string' || typeof raw.changed !== 'boolean') return null;
   if (!isLists(raw.files, ['added', 'modified', 'removed']) || !isLists(raw.bots, ['added', 'modified', 'removed'])
@@ -141,7 +158,8 @@ function publishPreviewOf(raw) {
     if (typeof state === 'string') checks[name.slice(0, 40)] = state.slice(0, 40);
   }
   return {transport: typeof raw.transport === 'string' ? raw.transport.slice(0, 20) : null, base: typeof raw.base === 'string' ? raw.base.slice(0, 40) : null,
-    version: raw.version.slice(0, 40), changed: raw.changed, files: group(raw.files, ['added', 'modified', 'removed']),
+    version: raw.version.slice(0, 40), changed: raw.changed,
+    ...(typeof raw.inputs === 'string' && /^[a-f0-9]{64}$/.test(raw.inputs) ? {inputs: raw.inputs} : {}), files: group(raw.files, ['added', 'modified', 'removed']),
     files_count: Number.isFinite(raw.files_count) ? raw.files_count : 0, bots: group(raw.bots, ['added', 'modified', 'removed']),
     extensions: group(raw.extensions, ['added', 'removed']), mcp_servers: group(raw.mcp_servers, ['added', 'removed']), secrets: list(raw.secrets),
     recipients: {count: raw.recipients.count, changed: raw.recipients.changed === true}, framework: typeof raw.framework === 'string' ? raw.framework.slice(0, 40) : null, checks};
@@ -314,6 +332,15 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     return {...result, digest: digestOf({etag: report.etag, version: report.setup?.version, files: plan?.files, ext: plan?.extensions, removals})};
   }
 
+  async function connectPreview({grant, register} = {}) {
+    if (grant) store.saveProfile(grant);
+    try { return await preview({register}); } catch (error) {
+      // Drop a failed first-connect grant only when Biz rejected the credential or denied access.
+      if (grant && !status().connected && (GRANT_FAILURES.has(error.message) || [401, 403].includes(error.status))) store.profileLogout();
+      throw error;
+    }
+  }
+
   function removeExtension(id) { mise('run', 'ext:remove', id); }
 
   function removeMcpServer(name) {
@@ -376,6 +403,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     const removals = removalsOf({report, local, setup: setupNames(before, plan), catalog});
     const removed = removeAll(removals);
     const secrets = plan?.secrets?.names;
+    if (!store.profileStatus().connected) throw Error('not_connected');
     save({connected: true, etag: report.etag, version: report.setup?.version ?? null, appliedAt: new Date(now()).toISOString(), frozen: false, paused: null, restoreSecrets: false, secretsPending,
       lastCapabilities: report.capabilities.length,
       delivered: {extensions: union(delivered.extensions, plan?.extensions?.added), mcp_servers: union(delivered.mcp_servers, plan?.mcp_servers?.added),
@@ -407,14 +435,21 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
 
   /** Cancel (or disconnect): the grant goes, local files stay as they are. */
   function disconnect() {
-    store.profileLogout();
-    fs.rmSync(stateFile(env), {force: true});
-    return {connected: false};
+    const release = setupLock();
+    try {
+      store.profileLogout();
+      fs.rmSync(stateFile(env), {force: true});
+      return {connected: false};
+    } finally { release(); }
   }
 
   /** `dist:publish`: exit 3 (`stale_base`) means Biz has a newer version than this project was built on. */
-  function distPublish(version) {
-    try { return mise('run', 'dist:publish', ...(version ? [version] : [])); } catch (error) {
+  function distPublish(version, inputs) {
+    const args = ['run', 'dist:publish', ...(version ? [version] : [])];
+    try {
+      return sh('mise', args, inputs ? {env: {...env, FYSO_DIST_EXPECT_INPUTS: inputs}} : {});
+    } catch (error) {
+      if (error.status === 6 || (error.status === 3 && /preview_stale:/.test(error.stderr || ''))) throw Object.assign(Error('preview_stale'), {cause: error});
       if (error.status === 3 || /stale_base/.test(`${error.message}${error.stderr || ''}`)) throw Object.assign(Error('stale_base'), {cause: error});
       // Exit 5: this publisher never installed the setup Biz already has; install it first.
       if (error.status === 5) throw Object.assign(Error('setup_not_installed'), {cause: error});
@@ -445,9 +480,10 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
 
   /** What a failed command says, short and without secrets: its first line plus the tail of its stderr. */
   function describe(error) {
-    const first = String((error.cause || error).message || '').split('\n')[0].slice(0, 120);
-    const tail = stderrTail(error.cause || error);
-    return tail && !first.includes(tail) ? `${first} (${tail})` : first;
+    const cause = error.cause || error;
+    const first = stderrTail({stderr: String(cause.message || '').split('\n')[0]}, Infinity).slice(0, 120);
+    const tail = stderrTail(cause);
+    return tail && first && !first.includes(tail) ? `${first} (${tail})` : first || tail;
   }
 
   /** `dist:publish --dry-run --json`: what a publish would do, checked. Nothing is sent to Biz. */
@@ -467,12 +503,15 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
         return {...blocked, digest: digestOf(blocked)};
       }
       if (error.status === 5) throw Object.assign(Error('setup_not_installed'), {cause: error});
-      // A framework without the flag takes it as a version number and refuses it.
-      if (/dry-run|invalid version|unknown (option|flag|argument)|unrecognized|usage/i.test(`${error.stderr || ''}${error.message || ''}`)) throw Object.assign(Error('framework_update_required'), {cause: error});
+      // Older frameworks take the flag as a version. Some parsers reject it as an unknown option.
+      const rejection = /(?:^|\n)\s*(?:error:\s*)?(?:invalid version|(?:unknown|unrecognized) (?:option|flag|argument))\s+["']?--(?:dry-run|json)(?=["'\s]|$)/i;
+      if ([1, 2].includes(error.status) && rejection.test(error.stderr || '')) {
+        throw Object.assign(Error('framework_update_required'), {cause: error});
+      }
       throw error;
     }
     let raw;
-    try { raw = jsonOf(output); } catch { throw Error('framework_update_required'); }
+    try { raw = jsonOf(output); } catch { throw Error('unexpected_response'); }
     const preview = publishPreviewOf(raw);
     if (!preview) throw Error('unexpected_response');
     return {...preview, digest: digestOf(preview)};
@@ -496,7 +535,8 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
   }
 
   /** The preview before publishing: the framework's dry run, with the digest `publish` will ask for. */
-  async function publishPreview() {
+  async function publishPreview({grant} = {}) {
+    if (grant) store.saveProfile(grant);
     return reporting(async () => {
       const bearer = await adminBearer();
       await access.registerRecipient(bearer, ageKey());
@@ -512,13 +552,13 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       await access.registerRecipient(bearer, ageKey());
       const current = dryRun();
       if (current.blocked || !current.changed || current.version !== version || current.digest !== digest) throw Error('preview_stale');
-      return publishNow(bearer, version);
+      return publishNow(bearer, version, {inputs: current.inputs});
     });
   }
 
   /** `dist:publish` and the record of it (version, notice). */
-  async function publishNow(bearer, version, {reason} = {}) {
-    const output = String(distPublish(version));
+  async function publishNow(bearer, version, {reason, inputs} = {}) {
+    const output = String(distPublish(version, inputs));
     await afterPublish(bearer, output, {reason});
     return {output: output.trim().split('\n').slice(-5).join('\n'), version: readState(env).selfPublished ?? null};
   }
@@ -550,6 +590,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
     access.invalidate?.(bearer);
     const report = await readReport(bearer);
     const recipients = await access.recipients(bearer);
+    if (!store.profileStatus().connected) throw Error('not_connected');
     const published = version ?? report.setup?.version ?? null;
     save({publishPaused: null, selfPublished: published, etag: report.etag, version: published, recipientsEtag: recipients.etag});
     // "No changes since the last version; nothing published" is not a publication.
@@ -706,6 +747,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
           result.status = 'published';
         }
       } catch (error) {
+        if (error.message === 'not_connected') return {status: 'disconnected'};
         if (error.message === 'setup_not_installed') notify('setup_not_installed', 'Automatic publishing needs the current setup installed first: open the Setup tab and connect.');
         else if (error.message === 'merge_conflict') {
           save({publishPaused: {files: error.files, at: new Date(now()).toISOString()}});
@@ -731,6 +773,7 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
         notify('merge_conflict', `The latest setup conflicts with local edits in ${error.files.join(', ') || 'some files'}. Nothing was changed; resolve them in the Setup tab.`);
         return {status: 'conflict', files: error.files};
       }
+      if (error.message === 'not_connected') return {status: 'disconnected'};
       notify('failed', `Sync failed (${error.message}); the next run tries again`);
       return {status: 'failed', error: error.message};
     }
@@ -743,19 +786,64 @@ function setup({env = process.env, root = process.cwd(), access, store, run = de
       publishPaused: state.publishPaused || null, version: state.version ?? null, shownVersion: newerVersion(state.selfPublished, state.version), selfPublished: state.selfPublished ?? null, noAccess: state.noAccess === true, appliedAt: state.appliedAt ?? null, notices: collapseNotices(state.notices), pendingSecrets: (state.pendingSecrets || []).length, secretsPending: state.secretsPending || []};
   }
 
-  // One change at a time: the sync workflow and the panel must not interleave.
-  const exclusive = fn => async (...args) => {
+  // Preview shares the lock because dist:plan touches Git. Disconnect shares it so it cannot
+  // remove the grant or setup state while a panel operation or the sync workflow is using them.
+  function setupLock() {
     const lock = path.join(auth.dataDir(env), 'setup.lock');
-    fs.mkdirSync(path.dirname(lock), {recursive: true, mode: 0o700});
-    try { fs.mkdirSync(lock); } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (now() - fs.statSync(lock).mtimeMs <= 30 * 60 * 1000) throw Error('busy');
-      fs.rmSync(lock, {recursive: true, force: true}); fs.mkdirSync(lock);
+    const dir = path.dirname(lock);
+    fs.mkdirSync(dir, {recursive: true, mode: 0o700});
+    const held = fs.statSync(lock, {throwIfNoEntry: false});
+    if (held) {
+      try {
+        const name = fs.readdirSync(lock).find(name => /^owner\..+\.json$/.test(name));
+        const file = name && path.join(lock, name);
+        let owner;
+        if (file) {
+          try { owner = JSON.parse(fs.readFileSync(file, 'utf8')); }
+          catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+        }
+        if (Number.isSafeInteger(owner?.pid) && owner.pid > 0) {
+          if (ownerIsAlive(owner)) throw Error('busy');
+        } else if (now() - held.mtimeMs <= 30 * 60 * 1000) throw Error('busy');
+        if (file) fs.unlinkSync(file);
+        fs.rmdirSync(lock);
+      } catch (error) {
+        if (['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw Error('busy');
+        throw error;
+      }
     }
-    try { return await fn(...args); } finally { fs.rmSync(lock, {recursive: true, force: true}); }
+    // Publish a nonempty directory in one rename so contenders always see the owner.
+    // The unique filename lets only one contender remove a dead owner's record.
+    const staging = fs.mkdtempSync(path.join(dir, '.setup-lock-'));
+    const name = `owner.${path.basename(staging)}.json`;
+    try {
+      fs.writeFileSync(path.join(staging, name), JSON.stringify({pid: process.pid, at: now(), start: processStart(process.pid)}), {mode: 0o600});
+      fs.renameSync(staging, lock);
+    } catch (error) {
+      fs.rmSync(staging, {recursive: true, force: true});
+      if (['ENOTEMPTY', 'EEXIST'].includes(error.code)) throw Error('busy');
+      throw error;
+    }
+    return () => {
+      fs.renameSync(lock, staging);
+      fs.rmSync(staging, {recursive: true, force: true});
+    };
+  }
+  const exclusive = fn => async (...args) => {
+    const release = setupLock();
+    try { return await fn(...args); } finally { release(); }
   };
 
-  return {preview, apply: exclusive(apply), disconnect, publishPreview: exclusive(publishPreview), publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf, noteReport, reauthorized};
+  function noteStatusReport(report) {
+    let release;
+    try { release = setupLock(); } catch (error) {
+      if (error.message === 'busy') return false;
+      throw error;
+    }
+    try { return noteReport(report); } finally { release(); }
+  }
+
+  return {preview: exclusive(connectPreview), apply: exclusive(apply), disconnect, publishPreview: exclusive(publishPreview), publish: exclusive(publish), mergeAndPublish: exclusive(mergeAndPublish), sync: exclusive(sync), status, freeze, readReport, removalsOf, noteReport: noteStatusReport, reauthorized};
 }
 
 module.exports = {setup, redactPaths, collapseNotices, stderrTail, publishPreviewOf, removalsOf, inspect, readState, writeState, isFrozen, ERRORS, jsonOf};
@@ -766,7 +854,12 @@ if (require.main === module) (async () => {
   if (command === 'status') return console.log(JSON.stringify(managed.status()));
   if (command !== 'sync') throw Error('usage: managed-setup.cjs <sync|status>');
   if (!process.env.FYSO_BIZ_ACCESS_ORGANIZATION) return console.log(JSON.stringify({status: 'disabled'}));
-  console.log(JSON.stringify(await managed.sync()));
+  try {
+    console.log(JSON.stringify(await managed.sync()));
+  } catch (error) {
+    if (error.message !== 'busy') throw error;
+    console.log(JSON.stringify({status: 'busy'}));
+  }
 })().catch(error => {
   console.error(`Fyso Biz setup: ${ERRORS.includes(error.message) ? error.message : 'sync_failed'}`);
   process.exitCode = 1;

@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      biz_url:
+        description: 'Base URL of a reachable local-stack Biz (contract job)'
+        required: false
 permissions:
   contents: read
 jobs:
@@ -14,5 +19,48 @@ jobs:
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
         with:
           version: 2026.11.2
-      - run: mise run test
+      - run: mise run coverage
       - run: python3 -m unittest discover -s tests -p test_packaging.py
+  panel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.2
+      - run: npm ci
+      - run: mise run test-panel
+  # Tier 2 (tests/contract/). Manual dispatch requires a hosted or tunnelled Biz whose `biz_url` is
+  # reachable from the runner. A developer's localhost stack is only reachable locally. On push and pull_request
+  # it is skipped. The repository secret BIZ_CONTRACT_CREDENTIALS holds the contents of credentials.env.
+  contract:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      BIZ_CONTRACT_URL: ${{ inputs.biz_url }}
+      BIZ_CONTRACT_ORGANIZATION: local-org
+    steps:
+      - name: Prepare contract credentials
+        shell: bash
+        env:
+          CONTRACT_CREDENTIALS_CONTENT: ${{ secrets.BIZ_CONTRACT_CREDENTIALS }}
+        run: |
+          if [[ -z "${BIZ_CONTRACT_URL//[[:space:]]/}" ]]; then
+            echo "::error::The manual contract job requires the biz_url input."
+            exit 1
+          fi
+          if [[ -z "${CONTRACT_CREDENTIALS_CONTENT//[[:space:]]/}" ]]; then
+            echo "::error::Set the BIZ_CONTRACT_CREDENTIALS repository secret to the contents of credentials.env."
+            exit 1
+          fi
+          umask 077
+          credentials_file="$RUNNER_TEMP/biz-contract-credentials.env"
+          printf '%s\n' "$CONTRACT_CREDENTIALS_CONTENT" > "$credentials_file"
+          printf 'BIZ_CONTRACT_CREDENTIALS=%s\n' "$credentials_file" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4.2.2
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b
+        with:
+          version: 2026.11.2
+      - run: mise run contract

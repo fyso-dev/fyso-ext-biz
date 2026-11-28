@@ -9,6 +9,12 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
   const url = endpoint(origin, oauth);
   if (!token || /[\r\n]/.test(token)) throw Error('missing_token');
   let id = 0, session, protocol = '2025-03-26';
+  // Retain only a short machine code. A provider's error description may echo credentials.
+  const bizCode = value => {
+    if (typeof value !== 'string' || !value) return undefined;
+    return /^[a-z][a-z0-9_-]{0,63}$/.test(value) && !value.includes(token) && !value.startsWith('fyb_')
+      ? value : '[redacted]';
+  };
   async function rpc(method, params, notification = false) {
     let response; const requestId = notification ? undefined : ++id;
     try {
@@ -18,14 +24,33 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
         'MCP-Protocol-Version':protocol,
       }, body:JSON.stringify({jsonrpc:'2.0', ...(!notification && {id:requestId}), method, params})});
     } catch { throw Error('connection_failed'); }
-    if (!response.ok) throw Error(response.status === 401 || response.status === 403 ? 'access_denied' : 'remote_unavailable');
+    if (!response.ok) {
+      const error = Object.assign(Error(response.status === 401 || response.status === 403 ? 'access_denied' : 'remote_unavailable'),
+        {status: response.status});
+      // HTTP failures keep their status even if the proxy's body is empty, malformed or unreadable.
+      const reader = response.body?.getReader();
+      try {
+        let text = '';
+        const decoder = new TextDecoder();
+        while (reader) {
+          const {done, value} = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, {stream:true});
+          if (text.length > 4096) break;
+        }
+        const body = JSON.parse(text);
+        error.bizCode = bizCode(body?.error?.code ?? body?.error);
+      } catch { /* the status is still available */ }
+      finally { await reader?.cancel().catch(() => {}); }
+      throw error;
+    }
     session = response.headers.get('mcp-session-id') || session;
     if (notification) { await response.body?.cancel(); return; }
     // Read JSON and SSE responses with a size bound and a request timeout.
     const reader = response.body.getReader(), decoder = new TextDecoder();
     let text = '';
     for (;;) {
-      const chunk = await reader.read();
+      const chunk = await reader.read().catch(() => { throw Error('connection_failed'); });
       if (chunk.done) break;
       text += decoder.decode(chunk.value, {stream:true});
       if (text.length > 4_000_000) { await reader.cancel(); throw Error('response_too_large'); }
@@ -68,7 +93,11 @@ function client(origin, token, transport = fetch, {oauth = false} = {}) {
     async call(name, args = {}) {
       const result = await rpc('tools/call', {name, arguments:args});
       // Keep Biz's own error code (for example `version_conflict`) for the caller, never as output.
-      if (result.isError) throw Object.assign(Error('tool_denied'), {detail:list(result.content).filter(c=>c.type === 'text').map(c=>String(c.text)).join('\n').slice(0,500)});
+      if (result.isError) {
+        const detail = list(result.content).filter(c=>c.type === 'text').map(c=>String(c.text)).join('\n').slice(0,500);
+        const code = /^([a-z][a-z0-9_-]{0,63})(?=:|$)/.exec(detail)?.[1];
+        throw Object.assign(Error('tool_denied'), {detail, bizCode: bizCode(code)});
+      }
       if (result.structuredContent) return result.structuredContent;
       try { return JSON.parse(result.content.filter(c=>c.type === 'text').map(c=>c.text).join('\n')); }
       catch { throw Error('invalid_response'); }
@@ -138,7 +167,7 @@ module.exports = {client, collect, endpoint, vision, normalizeVision};
 const ERRORS = ['invalid_origin','missing_token','access_denied','remote_unavailable','connection_failed','response_too_large','invalid_response','remote_error','tool_denied','incomplete_catalog','context_not_supported','department_mismatch',
   'not_connected','oauth_not_supported','refresh_busy','teams_not_supported','unsupported_format','invalid_export','invalid_team_file','name_conflict','no_model','team_conflict','uncommitted_changes','secret_detected',
   'templates_not_supported','publish_not_supported','unknown_department','version_conflict','conflict','no_package','departamento_requerido','unexpected_response',
-  'proposals_not_supported','linked_to_biz','not_renamed','not_published'];
+  'proposals_not_supported','linked_to_biz','not_renamed','not_published','biz_http_error','operation_failed'];
 // A personal token (sops) wins; otherwise the grant from the panel's OAuth login.
 async function token(env = process.env) {
   if (env.BOT_FYSO_BIZ_TOKEN) return {token:env.BOT_FYSO_BIZ_TOKEN, oauth:false};
@@ -187,6 +216,17 @@ Object.assign(module.exports, {statusOf, context, overview, ERRORS});
 const PANEL_OPS = ['status','logout','teams','team-prepare','team-sync','team-publish','team-propose','team-rename'];
 const commandOf = argv => argv[2] === 'panel' ? (PANEL_OPS.includes(process.env.FYSO_BIZ_OP) ? process.env.FYSO_BIZ_OP : 'status') : argv[2];
 const sync = require('./teams-sync.cjs');
+/**
+ * The structured code of a failed panel action. `connection_failed` is what the client itself throws for a network
+ * failure; anything else that is not a coded error is not "could not reach Biz": an HTTP error keeps its status, the
+ * rest is `operation_failed`.
+ */
+function failureOf(error) {
+  const http = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599;
+  const code = ERRORS.includes(error?.message) ? error.message : http ? 'biz_http_error' : 'operation_failed';
+  return {code, detail: code === 'biz_http_error' ? ` (HTTP ${error.status})` : ''};
+}
+Object.assign(module.exports, {failureOf});
 if (require.main === module) (async()=>{
   const command = commandOf(process.argv);
   if (command === 'status') { console.log(JSON.stringify(statusOf())); return; }
@@ -225,8 +265,8 @@ if (require.main === module) (async()=>{
     message:process.env.FYSO_BIZ_MESSAGE || '', overwrite:process.env.FYSO_BIZ_OVERWRITE === '1'})));
   else console.log(JSON.stringify(await context(mcp, process.env.FYSO_BIZ_DEPARTMENT || '')));
 })().catch(error=>{
-  const code = ERRORS.includes(error.message) ? error.message : 'connection_failed';
-  console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : ''}`);
+  const {code, detail} = failureOf(error);
+  console.error(`Fyso Biz: ${code}${error.bot ? ` (${error.bot})` : detail}`);
   // Panel actions read a structured failure from the output.
   if (['teams','team-prepare','team-sync','team-publish','team-propose','team-rename','status','logout'].includes(commandOf(process.argv))) console.log(JSON.stringify({error:code, ...(error.bot && {bot:error.bot}), ...(commandOf(process.argv) === 'teams' && {connection:statusOf()})}));
   else process.exitCode=1;

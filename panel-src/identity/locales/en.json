@@ -49,6 +49,7 @@
     "backgroundInvalid": "That image could not be used. Try a JPG or a PNG.",
     "restartNote": "The panel, the icons and the login background change on save. The name on the login, Automations and Agent chat changes when the project restarts. Typography and corners apply to the panel.",
     "resetAll": "Reset everything to Fyso",
+    "workflowNotStarted": "The workflow could not be started.",
     "save": "Save",
     "saving": "Saving…",
     "saved": "Saved. Versioned in git."

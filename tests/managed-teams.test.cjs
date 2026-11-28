@@ -306,12 +306,64 @@ test('the reauthorize guard reads the report with the credential it is given and
   assert.equal(sync.readState(s.root).departments.Gone.managed, undefined);
 });
 
-test('a project that never connected skips quietly: exit 0 and a clear notice', () => {
-  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'biz-nc-'));
-  const result = require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, '../extensions/biz/managed-teams.cjs')], {
-    env: {PATH: process.env.PATH, FYSO_DATA: data, FYSO_BIZ_URL: 'http://localhost:9', FYSO_BIZ_ACCESS_ORGANIZATION: ORG}, encoding: 'utf8', cwd: data,
+function runHook(cwd, env = {}) {
+  return require('node:child_process').spawnSync(process.execPath, [path.join(__dirname, '../extensions/biz/managed-teams.cjs')], {
+    env: {PATH: process.env.PATH, TMPDIR: os.tmpdir(), FYSO_DATA: cwd, FYSO_BIZ_URL: 'http://localhost:9', FYSO_BIZ_ACCESS_ORGANIZATION: ORG, ...env},
+    encoding: 'utf8', cwd,
   });
+}
+
+test('a project that never connected skips quietly: exit 0 and a clear notice', () => {
+  const result = runHook(fs.mkdtempSync(path.join(os.tmpdir(), 'biz-nc-')));
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /managed teams skipped: not connected yet/);
   assert.doesNotMatch(result.stderr, /connection_failed/);
+});
+
+test('the teams hook distinguishes Biz export errors from network failures and timeouts', t => {
+  const {root} = project();
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const scripts = path.join(root, 'framework', 'scripts');
+  fs.mkdirSync(scripts, {recursive: true});
+  for (const script of ['managed-bots.cjs', 'team-template.cjs']) fs.writeFileSync(path.join(scripts, script), '');
+  const preload = path.join(root, 'fake-transport.cjs');
+  fs.writeFileSync(preload, `
+    Object.defineProperty(globalThis, 'fetch', {value: async (_url, options) => {
+      const {id, method, params} = JSON.parse(options.body);
+      const reply = result => Response.json({jsonrpc: '2.0', id, result});
+      if (method === 'initialize') return reply({protocolVersion: '2025-03-26'});
+      if (method === 'notifications/initialized') return new Response(null, {status: 202});
+      if (method === 'tools/list') return reply({tools: [{name: 'proyectos_framework'}]});
+      if (params.name === 'proyectos_framework') return reply({structuredContent: {organizacion: '${ORG}',
+        proyectos: [{proyecto_id: '${PROJECT}', equipos: [{equipo_id: 'e1'}]}]}});
+      if (params.name !== 'exportar_equipo') throw Error('unexpected tool');
+      const token = process.env.BOT_FYSO_BIZ_TOKEN;
+      if (process.env.EXPORT_FAILURE === 'network') throw new TypeError('socket closed ' + token);
+      if (process.env.EXPORT_FAILURE === 'timeout') throw new DOMException(token, 'TimeoutError');
+      if (process.env.EXPORT_FAILURE === 'body-timeout') return new Response(new ReadableStream({
+        start(controller) { controller.error(new DOMException(token, 'TimeoutError')); },
+      }));
+      if (process.env.EXPORT_FAILURE === 'proxy') return new Response('Bearer ' + token, {status: 502});
+      if (process.env.EXPORT_FAILURE === 'tool') return reply({isError: true,
+        content: [{type: 'text', text: 'not_found: Bearer ' + token}]});
+      return Response.json({error: process.env.EXPORT_FAILURE === 'unsafe' ? token : 'export_denied',
+        error_description: 'Bearer ' + token}, {status: 403});
+    }});
+  `);
+  const token = 'fyb_test_hook_credential';
+  for (const [failure, diagnostic] of [
+    ['http', 'biz_http_error (HTTP 403, export_denied)'],
+    ['unsafe', 'biz_http_error (HTTP 403, [redacted])'],
+    ['proxy', 'biz_http_error (HTTP 502)'],
+    ['tool', 'tool_denied (not_found)'],
+    ['network', 'connection_failed'],
+    ['timeout', 'connection_failed'],
+    ['body-timeout', 'connection_failed'],
+  ]) {
+    const result = runHook(root, {NODE_OPTIONS: `--require "${preload}"`, BOT_FYSO_BIZ_TOKEN: token,
+      FYSO_BIZ_ACCESS_PROJECT: PROJECT, EXPORT_FAILURE: failure});
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stderr.trim(), `Fyso Biz: managed teams failed: ${diagnostic}`, failure);
+    assert.ok(!result.stdout.includes(token));
+  }
 });

@@ -5,7 +5,17 @@ node = "24.15.0"
 "npm:yaml" = "2.8.1"
 
 [tasks.test]
-run = "node --test tests/*.test.cjs"
+run = "node --require ./tests/isolation-preload.cjs --test tests/*.test.cjs"
+
+[tasks.contract]
+description = "Tier 2: fake Biz scenarios against a real local Biz (needs BIZ_CONTRACT_URL; skips without it)"
+run = "node --test \"tests/contract/*.contract.cjs\""
+
+[tasks.coverage]
+run = "node scripts/check-coverage.cjs"
 
 [tasks.build]
 run = "node scripts/build.cjs"
+
+[tasks.test-panel]
+run = "npm run test:panel"

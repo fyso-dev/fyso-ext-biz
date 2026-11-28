@@ -60,6 +60,7 @@
     "teamApplied_other": "Done: {{count}} agents are in your project.",
     "teamsFootnote": "Agents you bring are saved in the project. You can change their model or permissions here and keep those changes when you update.",
     "teamErrors": {
+      "workflow_not_started": "The workflow could not be started.",
       "connection_failed": "We could not reach Fyso Business. Try again.",
       "not_connected": "Your Fyso Business session ended. Connect again.",
       "access_denied": "Fyso Business denied access. Connect again.",
@@ -85,7 +86,9 @@
       "proposals_not_supported": "Your Fyso Business does not accept change proposals yet.",
       "linked_to_biz": "This department is already on Biz: its changes are sent as a proposal.",
       "not_renamed": "The department already has its Biz name.",
-      "not_published": "This department is not on Biz yet."
+      "not_published": "This department is not on Biz yet.",
+      "operation_failed": "Something went wrong in Fyso Business. Try again; if it keeps happening, check the workflow run.",
+      "biz_http_error": "Fyso Business answered with an error. Try again later."
     },
     "department": "Department",
     "selectDepartment": "Choose a department",
@@ -217,7 +220,10 @@
     "syncManaged": "Fyso Business manages this department for this project: changes are made there.",
     "syncProposalsNotSupported": "Your Fyso Business does not accept change proposals yet.",
     "tabAccess": "Your departments",
-    "tabSetup": "Setup"
+    "tabSetup": "Setup",
+    "permissionsUnavailable": "We could not check your permissions. Reload the page to try again.",
+    "teamActionReadOnly": "Your access to this team action is read-only.",
+    "syncReadOnly": "Your access to this project is read-only: the departments sync is run by someone who can change the project."
   },
   "access": {
     "connectTitle": "Connect Fyso Biz",
@@ -331,7 +337,7 @@
     "errors": {
       "setup_failed": "The setup could not be completed. Nothing was removed.",
       "not_connected": "Connect Fyso Biz first.",
-      "reauthorize_required": "Your Fyso Biz connection expired. Authorize again.",
+      "reauthorize_required": "Your Fyso Biz connection expired.",
       "frozen": "Your access was revoked.",
       "no_access": "You do not have access to the setup yet.",
       "access_required": "You do not have access to this project in Fyso Biz.",
@@ -347,7 +353,18 @@
       "preview_stale": "The project changed after the preview. Review the new preview and confirm again.",
       "preview_required": "Review the preview before publishing.",
       "publish_failed": "The setup could not be published.",
-      "unexpected_response": "The framework's preview could not be read."
+      "unexpected_response": "The framework's preview could not be read.",
+      "invalid_input": "The setup request contains invalid data.",
+      "not_found": "This setup action is unavailable.",
+      "key_unavailable": "This project’s encryption key could not be read.",
+      "invalid_age_key": "This project’s encryption key is invalid.",
+      "biz_access_unavailable": "Fyso Biz could not verify project access or update recipients.",
+      "invalid_biz_access_decision": "Fyso Biz returned an unreadable access or recipient report.",
+      "profile_required": "A Fyso Biz profile session is required.",
+      "biz_access_not_configured": "Fyso Biz access is missing an organization configuration.",
+      "invalid_origin": "The Fyso Biz server address is invalid.",
+      "biz_unreachable": "Fyso Biz could not be reached.",
+      "unexpected_empty_response": "Fyso Biz sent an unexpected answer."
     },
     "mergeAndPublish": "Update and merge",
     "conflicts": "Conflicting files",
@@ -371,6 +388,16 @@
       "recipients": "Recipients: {{count}}",
       "recipientsChanged": "Recipients: {{count}} (changed)",
       "checks": "Checks",
+      "checkNames": {
+        "gitleaks": "Secret scan",
+        "machine_paths": "Machine-specific paths"
+      },
+      "otherCheck": "Additional check",
+      "checkStatus": {
+        "pill-ok": "Passed",
+        "pill-down": "Failed",
+        "pill-unk": "Unknown"
+      },
       "framework": "Framework {{version}}",
       "added": "Added ({{count}})",
       "modified": "Modified ({{count}})",
@@ -380,6 +407,7 @@
       "close": "Close"
     },
     "reauthorize": "Your Fyso Biz connection expired. Authorize again to keep syncing.",
+    "reauthorizePaused": "Authorize again to resume syncing.",
     "reauthorizeButton": "Authorize again",
     "showMore": "Show more",
     "showLess": "Show less",
@@ -394,6 +422,8 @@
       "other": "unknown reason"
     },
     "noticePaused": "Sync paused: {{reason}}. Nothing was changed.",
+    "syncFailed": "Sync failed.",
+    "noticeFailed": "{{reason}} The next sync will retry.",
     "noticeReconnected": "Fyso Biz connection renewed; syncing again."
   }
 }

@@ -2,6 +2,7 @@
 // Tokens live only in this project's runtime data (.data/ext/biz/), never in git,
 // browser storage, URLs or workflow parameters.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
+const {writePrivate} = require('./atomic-write.cjs');
 
 const AGENT_SCOPE = 'mcp';
 const PROFILE_SCOPE = 'framework_access';
@@ -33,13 +34,6 @@ function addresses(env = process.env) {
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
-function writePrivate(file, value) {
-  fs.mkdirSync(path.dirname(file), {recursive: true, mode: 0o700});
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value), {mode: 0o600});
-  fs.renameSync(tmp, file);
-}
-
 async function json(response) {
   let body = null;
   try { body = await response.json(); } catch { /* handled below */ }

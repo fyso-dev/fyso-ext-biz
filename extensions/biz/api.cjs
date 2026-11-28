@@ -121,7 +121,7 @@ function api({env = process.env, transport = fetch, now = Date.now} = {}) {
     try { send(200, await route(url.searchParams)); }
     catch (error) {
       // Same structured failure the Dagu workflows print; never internal details.
-      const code = biz.ERRORS.includes(error.message) ? error.message : 'connection_failed';
+      const code = biz.ERRORS.includes(error.message) ? error.message : 'operation_failed';
       send(200, {error:code, ...(error.bot && {bot:error.bot}), ...(url.pathname === '/teams' && {connection:biz.statusOf(env)})});
     }
   };

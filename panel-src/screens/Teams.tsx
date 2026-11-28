@@ -2,6 +2,7 @@ import { useState } from "@fyso/panel";
 import { useTranslation } from "@fyso/panel";
 import { useDaguAction, useStore, External } from "@fyso/panel";
 import type { BizTeam, BizTeamPrepared, BotsPlan } from "../api/biz";
+import { APPLY_RUN, PLAN_RUN, TEAM_RUN, usePanelAccess } from "../api/panel-access";
 import { Departments } from "./Departments";
 import { Empty, Loading, Notice } from "../components/ui";
 
@@ -17,6 +18,9 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
   const prepare = useDaguAction<BizTeamPrepared>(s.backend, "ext-biz-team", "result");
   const preview = useDaguAction<BotsPlan>(s.backend, "fyso-bots-plan", "plan");
   const apply = useDaguAction<Applied>(s.backend, "fyso-bots-apply", "apply");
+  const access = usePanelAccess();
+  const mayPrepare = access.can(TEAM_RUN) && access.can(PLAN_RUN);
+  const mayApply = access.can(APPLY_RUN);
   const [active, setActive] = useState<string>();
   const [prepared, setPrepared] = useState<BizTeamPrepared>();
   const [plan, setPlan] = useState<BotsPlan>();
@@ -32,19 +36,20 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
   // `team-rename` prepares the team file that gives a locally renamed department its Biz
   // name back; it is reviewed and applied the same way as a download.
   const download = async (team:Pick<BizTeam,"id">, overwrite = false, op:"team-prepare"|"team-rename" = "team-prepare") => {
+    if (!mayPrepare) return;
     reset(); setError(undefined); setDone(undefined); setActive(team.id);
     const result = await prepare.start({FYSO_BIZ_OP:op, FYSO_BIZ_TEAM:team.id, FYSO_BIZ_OVERWRITE:overwrite ? "1" : ""});
     setSynced(n=>n+1);
-    if (!result || result.error || !result.teamB64) { setActive(undefined); fail(team.id, result?.error, result?.bot); return; }
+    if (!result || result.error || !result.teamB64) { setActive(undefined); fail(team.id, result ? result.error : "workflow_not_started", result?.bot); return; }
     const reviewed = await preview.start({TEAM_B64:result.teamB64, TEAM_BASE_B64:result.teamBaseB64});
-    if (!reviewed || !Array.isArray(reviewed.plan)) { setActive(undefined); fail(team.id, "preview"); return; }
+    if (!reviewed || !Array.isArray(reviewed.plan)) { setActive(undefined); fail(team.id, reviewed ? "preview" : "workflow_not_started"); return; }
     setPrepared(result); setPlan(reviewed);
   };
   const confirm = async () => {
-    if (!prepared || !plan || !active) return;
+    if (!mayApply || !prepared || !plan || !active) return;
     setError(undefined);
     const result = await apply.start({TEAM_B64:prepared.teamB64, TEAM_BASE_B64:prepared.teamBaseB64, REMOVAL_REVISION:plan.removalRevision ?? ""});
-    if (!result || typeof result.commit !== "string") { fail(active, "apply"); return; }
+    if (!result || typeof result.commit !== "string") { fail(active, result ? "apply" : "workflow_not_started"); return; }
     setDone({team:active, applied:result}); reset();
     s.reload(); void reload(); setSynced(n=>n+1);
   };
@@ -55,13 +60,14 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
   if (!teams) return listFailed && !loading
     ? <Empty icon="!"><p role="alert">{listFailed}</p><button type="button" className="btn btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></Empty>
     : <Loading text={t("biz.teamsLoading")} />;
-  const departments = <Departments version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} onRestoreName={id=>void download({id}, false, "team-rename")} />;
+  const departments = <Departments access={access} version={synced} onPublished={reload} onPull={(id, overwrite)=>void download({id}, overwrite)} onRestoreName={id=>void download({id}, false, "team-rename")} />;
   if (!teams.length) return <div className="biz-stack">{departments}<Empty icon="✦" title={t("biz.teamsEmptyTitle")}><p className="mute">{t("biz.teamsEmpty")}</p>
     {bizUrl && <External href={bizUrl}>{t("biz.teamsCreate")}</External>}
   </Empty></div>;
 
   return <div className="biz-stack">
     {departments}
+    {access.can(TEAM_RUN) && !mayPrepare && <p className="mute" role="status">{t("biz.teamActionReadOnly")}</p>}
     {listFailed && !loading && <Notice tone="down">{listFailed} <button type="button" className="btn btn-sm btn-soft" onClick={()=>void reload()}>{t("common.retry")}</button></Notice>}
     {error && !error.team && <Notice tone="down">{error.text}</Notice>}
     {loading && <p className="hint" role="status">{t("biz.refreshing")}</p>}
@@ -89,9 +95,10 @@ export function Teams({bizUrl, teams, error:listError, loading, reload}:{bizUrl?
         </div>}
         <div className="connector-actions">
           {open && prepared && plan ? <>
-            <button type="button" className="btn btn-pri" disabled={busy || plan.created + plan.changed + plan.deleted === 0} onClick={()=>void confirm()}>{t(apply.phase === "running" ? "biz.teamApplying" : "biz.teamApply")}</button>
+            <button type="button" className="btn btn-pri" disabled={busy || !mayApply || plan.created + plan.changed + plan.deleted === 0} onClick={()=>void confirm()}>{t(apply.phase === "running" ? "biz.teamApplying" : "biz.teamApply")}</button>
             <button type="button" className="btn btn-soft" disabled={apply.phase === "running"} onClick={reset}>{t("biz.teamCancel")}</button>
-          </> : <button type="button" className={`btn ${state === "current" ? "btn-soft" : "btn-pri"}`} disabled={busy} onClick={()=>void download(team)}>
+            {!mayApply && <p className="mute" role="status">{t("biz.teamActionReadOnly")}</p>}
+          </> : <button type="button" className={`btn ${state === "current" ? "btn-soft" : "btn-pri"}`} disabled={busy || !mayPrepare} onClick={()=>void download(team)}>
             {t(open && preparing ? "biz.teamPreparingShort" : state === "new" ? "biz.teamDownload" : state === "update" ? "biz.teamUpdateAction" : "biz.teamReview")}</button>}
         </div>
       </article>;

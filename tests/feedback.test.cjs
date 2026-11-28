@@ -21,7 +21,7 @@ async function fixture(t, beforeResponse = async () => {}) {
   await fs.writeFile(reportPath,
     `# Feedback\n\n- ID: ${id}\n\n## Title\n\nFailure\n\n## Component\n\nPanel\n\n## Description and evidence\n\nEvidence\n`);
   const env = {
-    FYSO_ROOT: root, FYSO_DATA: path.join(root, '.data'), FYSO_BIZ_URL: 'https://fyso.biz',
+    FYSO_ROOT: root, FYSO_DATA: path.join(root, '.data'), FYSO_BIZ_URL: 'https://biz.example',
     FYSO_BIZ_ACCESS_PROJECT: 'project', FYSO_BIZ_ACCESS_ORGANIZATION: 'tenant',
     FYSO_WEB_DOMAIN: 'preview.example', FYSO_WEB_SCHEME: 'https',
   };
@@ -32,7 +32,7 @@ async function fixture(t, beforeResponse = async () => {}) {
     access: {can: async (token, capability) => token === 'person' && capability === 'action:feedback:submit'},
     transport: async (target, init) => {
       assert.equal(init.headers.Authorization, 'Bearer person');
-      const endpoint = 'https://fyso.biz/oauth/framework-feedback?organization=tenant&project=project';
+      const endpoint = 'https://biz.example/oauth/framework-feedback?organization=tenant&project=project';
       if (init.method === 'GET') {
         assert.equal(target.href, endpoint + '&id=' + id);
         assert.equal(init.body, undefined);
@@ -65,9 +65,9 @@ async function fixture(t, beforeResponse = async () => {}) {
 
 test('reuses a saved receipt after restarting with an equivalent Biz URL', async t => {
   const {call, posted, restart} = await fixture(t);
-  restart('https://fyso.biz/');
+  restart('https://biz.example/');
   assert.deepEqual(await call('POST', 'person'), {status: 200, result: receipt});
-  restart('https://FYSO.BIZ:443');
+  restart('https://BIZ.EXAMPLE:443');
   assert.deepEqual(await call('GET', 'person'), {status: 200, result: {id, receipt}});
   assert.deepEqual(await call('POST', 'person'), published(receipt));
   assert.equal(posted(), 1);

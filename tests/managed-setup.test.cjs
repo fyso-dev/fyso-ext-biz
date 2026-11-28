@@ -1,10 +1,12 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), http = require('node:http');
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const {setup, removalsOf, readState, writeState, isFrozen, stderrTail, redactPaths, collapseNotices} = require('../extensions/biz/managed-setup.cjs');
 const {projectAccess} = require('../extensions/biz/project-access.cjs');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
 const {mcpPolicy} = require('../extensions/biz/mcp-policy.cjs');
+
+const {harness: sharedHarness, fakeBiz, CMD, WINDOWS, miniYaml} = require('./helpers/index.cjs');
 
 const KEY = 'age1' + 'q'.repeat(58);
 const POLICY = {preset: 'cuidado', extensions: 0, mcp_servers: 0, bots: 0, read: 1, write: 0, shell: 0, publish: 0, ai: 0};
@@ -63,7 +65,7 @@ function harness({reports, plan, recipients = {recipients: [], etag: 'r1'}, team
     if (cmd === 'node' && args[0].endsWith('bot-architect.cjs')) return JSON.stringify({bots: [{id: 'b1', name: 'Mine'}], planId: 'p1'});
     return '';
   };
-  const s = setup({env: p.env, root: p.root, access, store, run, deliverTeams: async () => teams, now: () => 1000, sleep: () => {}});
+  const s = setup({env: p.env, root: p.root, access, store, run, yaml: miniYaml, deliverTeams: async () => teams, now: () => 1000, sleep: () => {}});
   return {...p, s, calls, state, access, store, exits};
 }
 
@@ -293,24 +295,22 @@ test('secrets pending: shown in the status and retried when the etag changes', a
 });
 
 test('the access client sends the organization on every endpoint and reads setup, etag, pending and frozen', async () => {
+  const env = {FYSO_BIZ_URL: 'https://biz.test', FYSO_BIZ_ACCESS_ORGANIZATION: 'acme'};
   const seen = [];
-  const server = http.createServer((req, res) => {
-    seen.push(`${req.method} ${req.url}`);
-    res.setHeader('Content-Type', 'application/json');
-    if (req.url.startsWith('/oauth/framework-access/recipients')) return res.end(JSON.stringify({recipients: [{}], etag: 'r'}));
-    if (req.url.startsWith('/oauth/framework-access/recipient')) { res.statusCode = 204; return res.end(); }
-    res.end(JSON.stringify({capabilities: ['a'], setup: {version: 'v3', etag: 'z', published_at: 'now', size: 5, sha256: 'h'}, etag: 'e', recipients_pending: 2, frozen: true}));
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const env = {FYSO_BIZ_URL: `http://127.0.0.1:${server.address().port}`, FYSO_BIZ_ACCESS_ORGANIZATION: 'acme'};
-    const access = projectAccess({env});
-    const r = await access.report('t');
-    assert.deepEqual([r.setup.version, r.etag, r.recipientsPending, r.frozen], ['v3', 'e', 2, true]);
-    await access.registerRecipient('t', KEY);
-    assert.equal((await access.recipients('t')).etag, 'r');
-    assert.ok(seen.every(line => line.includes('organization=acme')), seen.join('\n'));
-  } finally { server.close(); }
+  const access = projectAccess({env, transport: async (url, {method}) => {
+    assert.equal(url.origin, env.FYSO_BIZ_URL);
+    assert.equal(url.searchParams.get('organization'), 'acme');
+    seen.push(`${method} ${url.pathname}`);
+    if (url.pathname.endsWith('/recipients')) return Response.json({recipients: [{}], etag: 'r'});
+    if (url.pathname.endsWith('/recipient')) return new Response(null, {status: 204});
+    return Response.json({capabilities: ['a'], setup: {version: 'v3', etag: 'z', published_at: 'now', size: 5, sha256: 'h'},
+      etag: 'e', recipients_pending: 2, frozen: true});
+  }});
+  const r = await access.report('t');
+  assert.deepEqual([r.setup.version, r.etag, r.recipientsPending, r.frozen], ['v3', 'e', 2, true]);
+  await access.registerRecipient('t', KEY);
+  assert.equal((await access.recipients('t')).etag, 'r');
+  assert.deepEqual(seen, ['GET /oauth/framework-access', 'PUT /oauth/framework-access/recipient', 'GET /oauth/framework-access/recipients']);
 });
 
 test('the extension sets the distribution transport environment', () => {
@@ -599,9 +599,9 @@ test('publish-preview: an older framework (no --dry-run) answers framework_updat
   const old = harness({reports: report({admin: true}), plan: PLAN()});
   old.exits['--dry-run'] = [{status: 1, stderr: 'error: invalid version --dry-run (use 1, 2, … or 1.2.0)'}];
   await assert.rejects(old.s.publishPreview(), {message: 'framework_update_required'});
-  // Or it ignores it and prints plain text.
+  // Plain text without an explicit flag rejection is an unexpected response.
   const quiet = harness({reports: report({admin: true}), plan: PLAN(), dry: 'no changes since the last version; nothing published'});
-  await assert.rejects(quiet.s.publishPreview(), {message: 'framework_update_required'});
+  await assert.rejects(quiet.s.publishPreview(), {message: 'unexpected_response'});
   const stale = harness({reports: report({admin: true}), plan: PLAN()});
   stale.exits['--dry-run'] = [3];
   await assert.rejects(stale.s.publishPreview(), {message: 'stale_base'});
@@ -799,4 +799,214 @@ test('a version published outside the panel (dist:publish) is recorded as this p
   await sync.s.sync();
   assert.equal(readState(sync.env).selfPublished, 'v3');
   assert.ok(!sync.calls.some(c => /dist:(add|update)/.test(c)));
+});
+
+// Exercise sync through the real access client and profile grant store.
+
+test('sync skips every command for the same etag and snapshots before updating a newer setup', async t => {
+  const h = sharedHarness(t);
+  h.connect({version: 'v2', etag: 'e1'});
+  h.project.writeAnswers();
+  h.project.markStarted();
+
+  assert.deepEqual(await h.managed.sync(), {status: 'noop'});
+  assert.equal(h.runner.count(), 0);
+
+  h.biz.publish('v3');
+  h.clock.advance(WINDOWS.REPORT_FRESH_MS);
+  const result = await h.managed.sync();
+  assert.deepEqual([result.status, result.version, result.installed], ['applied', 'v3', true]);
+  assert.deepEqual(h.runner.calls.filter(call => CMD.snapshot(call) || CMD.update(call)).map(call => call.args),
+    [['run', 'snapshot'], ['run', 'dist:update']]);
+  assert.equal(h.project.readState().etag, h.biz.etag);
+});
+
+test('regression: a 401 is reported as reauthorize_required, not biz_unreachable', async t => {
+  for (const status of [401, 403]) {
+    await t.test(String(status), async st => {
+      const h = sharedHarness(st);
+      h.connect({version: 'v2', etag: 'e1'});
+      await h.managed.sync();
+      h.clock.advance(WINDOWS.REPORT_FRESH_MS);
+      h.biz.queue('report', fakeBiz.http(status));
+      assert.deepEqual(await h.managed.sync(), {status: 'paused', reason: 'reauthorize_required'});
+      assert.deepEqual(h.managed.status().paused, {reason: 'reauthorize_required', detail: String(status), at: h.clock.iso()});
+      assert.equal(h.runner.count(), 0);
+    });
+  }
+});
+
+test('sync reports failures to reach Biz once the cached report expires', async t => {
+  const cases = [
+    ['network', fakeBiz.networkError(), /fetch failed/],
+    ['timeout', fakeBiz.hang(), /timeout/i],
+    ['server', fakeBiz.http(503), /^503$/],
+  ];
+  for (const [name, failure, detail] of cases) {
+    await t.test(name, async st => {
+      const h = sharedHarness(st);
+      h.connect({version: 'v2', etag: 'e1'});
+      await h.managed.sync();
+      h.clock.advance(WINDOWS.REPORT_STALE_MS);
+      h.biz.queue('report', failure);
+      const result = h.managed.sync();
+      if (name === 'timeout') {
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.biz.count('report'), 2);
+        assert.equal(h.clock.timeouts.at(-1), WINDOWS.ACCESS_TIMEOUT_MS);
+        h.clock.advance(WINDOWS.ACCESS_TIMEOUT_MS);
+      }
+      assert.deepEqual(await result, {status: 'paused', reason: 'biz_unreachable'});
+      assert.match(h.project.readState().paused.detail, detail);
+      assert.equal(h.runner.count(), 0);
+    });
+  }
+});
+
+test('a frozen report leaves first contact intact and revokes only delivered secrets after setup', async t => {
+  const keyFile = 'fixture.age';
+  const h = sharedHarness(t, {scenario: 'frozen', setupVersion: null,
+    project: {env: {MISE_SOPS_AGE_KEY_FILE: keyFile}}});
+  const deliveredFile = 'state/dist/secrets.sops.yaml';
+  h.connect();
+  assert.deepEqual(await h.managed.sync(), {status: 'no_access'});
+  assert.equal(h.managed.status().frozen, false);
+  assert.equal(h.runner.count(), 0);
+  assert.equal(h.project.exists(deliveredFile), true);
+
+  h.project.writeAnswers();
+  h.biz.scenario('member').publish('v2');
+  h.clock.advance(WINDOWS.REPORT_FRESH_MS);
+  assert.equal((await h.managed.sync()).status, 'applied');
+  assert.equal(h.managed.status().noAccess, false);
+
+  // The shared runner logs sops calls. Model the local vault mutation at that seam.
+  const vault = h.project.writeFile('secrets.enc.yaml', {API_KEY: 'enc', OTHER: 'enc', LOCAL_ONLY: 'enc'});
+  const checkSops = ({command, args, cwd, env}, expectedArgs) => {
+    assert.deepEqual([command, ...args], ['sops', ...expectedArgs]);
+    assert.equal(cwd, h.root);
+    assert.equal(path.resolve(cwd, args[expectedArgs.indexOf('secrets.enc.yaml')]), vault);
+    assert.deepEqual(env, {...h.env, SOPS_AGE_KEY_FILE: keyFile});
+  };
+  const decryptArgs = ['decrypt', '--output-type', 'json', 'secrets.enc.yaml'];
+  h.runner.always(CMD.sopsDecrypt, call => {
+    checkSops(call, decryptArgs);
+    return fs.readFileSync(vault, 'utf8');
+  });
+  const allowedKeys = new Map(['API_KEY', 'OTHER'].map(name => [JSON.stringify([name]), name]));
+  h.runner.always(CMD.sopsUnset, call => {
+    const name = allowedKeys.get(call.args[2]);
+    assert.ok(name, 'SOPS must unset a delivered key');
+    checkSops(call, ['unset', 'secrets.enc.yaml', JSON.stringify([name])]);
+    const secrets = JSON.parse(fs.readFileSync(vault, 'utf8'));
+    assert.ok(Object.hasOwn(secrets, name), 'SOPS must unset an existing key');
+    delete secrets[name];
+    fs.writeFileSync(vault, JSON.stringify(secrets));
+    return '';
+  });
+  h.biz.scenario('frozen');
+  h.clock.advance(WINDOWS.REPORT_FRESH_MS);
+  assert.deepEqual(await h.managed.sync(),
+    {status: 'frozen', changed: true, frozen: true, removedSecrets: 2, pendingSecrets: 0});
+  assert.deepEqual(JSON.parse(fs.readFileSync(vault, 'utf8')), {LOCAL_ONLY: 'enc'});
+  assert.equal(h.project.exists(deliveredFile), false);
+  assert.deepEqual(await h.managed.sync(), {status: 'frozen', changed: false});
+  assert.equal(h.runner.count(CMD.sopsUnset), 2);
+  checkSops(h.runner.last(CMD.sopsDecrypt), decryptArgs);
+});
+
+test('regression: every pause but frozen has a reauthorize way out', async t => {
+  const cases = [
+    ['reauthorize_required', h => h.biz.scenario('reauthorize')],
+    ['biz_unreachable', h => h.biz.queue('report', fakeBiz.http(503))],
+    ['not_connected', h => h.store.profileLogout()],
+    // Biz freezes a person with no access, so an empty, not frozen report is an anomaly: inject it.
+    ['unexpected_empty_response', h => h.biz.queue('report', fakeBiz.ok({capabilities: [], admin: false, departments: [], policy: null}))],
+  ];
+  for (const [reason, interrupt] of cases) {
+    await t.test(reason, async st => {
+      const h = sharedHarness(st);
+      h.connect({version: 'v2', etag: 'e1', lastCapabilities: 1});
+      const grant = {...h.project.readProfileGrant(), accessToken: 'renewed-profile'};
+      interrupt(h);
+      assert.deepEqual(await h.managed.sync(), {status: 'paused', reason});
+      assert.equal(h.managed.status().paused.reason, reason);
+
+      h.biz.scenario('member');
+      assert.equal(h.managed.reauthorized(grant), true);
+      assert.equal(h.managed.status().paused, null);
+      assert.equal(h.managed.status().notices.at(-1).kind, 'reconnected');
+      assert.equal(await h.store.profileAccessToken(), grant.accessToken);
+      assert.deepEqual(await h.managed.sync(), {status: 'noop'});
+      assert.equal(h.biz.last('report').token, grant.accessToken);
+    });
+  }
+  await t.test('frozen', async st => {
+    const h = sharedHarness(st, {scenario: 'frozen'});
+    h.connect({version: 'v2', etag: 'e1'});
+    assert.equal((await h.managed.sync()).status, 'frozen');
+    const grant = h.project.readProfileGrant();
+    assert.equal(h.managed.reauthorized({...grant, accessToken: 'unused'}), false);
+    assert.equal(h.managed.status().frozen, true);
+    assert.equal(await h.store.profileAccessToken(), grant.accessToken);
+  });
+});
+
+
+test('apply cannot restore a setup whose grant and state were removed while it ran', async t => {
+  const h = sharedHarness(t, {deliverTeams: async () => {
+    h.store.profileLogout();
+    fs.rmSync(h.project.stateFile);
+    return {managed: true, teams: []};
+  }});
+  h.connect();
+  const {digest} = await h.managed.preview();
+  await assert.rejects(h.managed.apply({digest}), {message: 'not_connected'});
+  assert.equal(fs.existsSync(h.project.stateFile), false);
+});
+
+test('setup immediately reclaims a dead owner and keeps a live owner past the legacy timeout', async t => {
+  const {execFileSync} = require('node:child_process');
+  const {root, env} = project();
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const managed = setup({env, store: {profileAccessToken: async () => { throw Error('not_connected'); }}});
+  const lock = path.join(require('../extensions/biz/auth.cjs').dataDir(env), 'setup.lock');
+  fs.mkdirSync(lock, {recursive: true});
+  const pid = Number(execFileSync(process.execPath, ['-p', 'process.pid'], {encoding: 'utf8'}));
+  fs.writeFileSync(path.join(lock, 'owner.test.json'), JSON.stringify({pid, at: Date.now()}));
+  assert.equal((await managed.sync()).status, 'disconnected');
+
+  fs.mkdirSync(lock);
+  const old = new Date(Date.now() - WINDOWS.SETUP_LOCK_STALE_MS - 60_000);
+  fs.writeFileSync(path.join(lock, 'owner.test.json'), JSON.stringify({pid: process.pid, at: +old}));
+  fs.utimesSync(lock, old, old);
+  await assert.rejects(managed.sync(), {message: 'busy'});
+});
+
+test('sync CLI quietly skips a held setup lock', t => {
+  const {spawnSync} = require('node:child_process');
+  const {root, env} = project();
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  fs.mkdirSync(path.join(require('../extensions/biz/auth.cjs').dataDir(env), 'setup.lock'), {recursive: true});
+  const result = spawnSync(process.execPath, [require.resolve('../extensions/biz/managed-setup.cjs'), 'sync'],
+    {env: {...process.env, ...env}, encoding: 'utf8'});
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  assert.deepEqual(JSON.parse(result.stdout), {status: 'busy'});
+});
+
+test('atomic writes remove only abandoned temporary files older than a day', t => {
+  const {writePrivate} = require('../extensions/biz/atomic-write.cjs');
+  const {root} = project();
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const stale = 'setup.json.123.0.1e2647a1-c543-4665-9982-248e22faab81.tmp';
+  const fresh = 'profile-oauth.json.123.2.2e2647a1-c543-4665-9982-248e22faab81.tmp';
+  const unrelated = 'setup.json.123.0.unrelated.tmp';
+  const old = new Date(Date.now() - 25 * 60 * 60_000);
+  for (const name of [stale, fresh, unrelated]) fs.writeFileSync(path.join(root, name), '');
+  for (const name of [stale, unrelated]) fs.utimesSync(path.join(root, name), old, old);
+  writePrivate(path.join(root, 'setup.json'), {connected: true});
+  assert.equal(fs.existsSync(path.join(root, stale)), false);
+  assert.equal(fs.existsSync(path.join(root, fresh)), true);
+  assert.equal(fs.existsSync(path.join(root, unrelated)), true);
 });
