@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), http = require('node:http');
-const {setup, removalsOf, readState, isFrozen, stderrTail} = require('../extensions/biz/managed-setup.cjs');
+const {setup, removalsOf, readState, writeState, isFrozen, stderrTail, redactPaths, collapseNotices} = require('../extensions/biz/managed-setup.cjs');
 const {projectAccess} = require('../extensions/biz/project-access.cjs');
 const {projectPolicy} = require('../extensions/biz/project-policy.cjs');
 const {mcpPolicy} = require('../extensions/biz/mcp-policy.cjs');
@@ -658,4 +658,107 @@ test('publish-preview: a failed check is shown (no version, nothing to confirm);
   // Nothing changed: the version is the latest published one.
   h.state.dry = DRY({changed: false, version: 'v3'});
   assert.deepEqual([(await h.s.publishPreview()).changed, (await h.s.publishPreview()).version], [false, 'v3']);
+});
+
+const TMP_FAIL = dir => `Sync failed (Command failed: mise run snapshot\nmise ERROR Operation not permitted (os error 1) at path "/var/folders/68/abc/T/.tmp${dir}"\nmise ERROR Version: 2026.11.7\n); the next run tries again`;
+
+test('machine paths are redacted: temporary ones become <tmp>, other absolute ones <path>, relative ones and URLs stay', () => {
+  assert.equal(redactPaths('at path "/var/folders/68/abc/T/.tmpebgR6L" failed'), 'at path "<tmp>" failed');
+  assert.equal(redactPaths('cannot write /tmp/x/y.txt'), 'cannot write <tmp>');
+  assert.equal(redactPaths('open /Users/ana/Fyso/skalo/.data/x.json now'), 'open <path> now');
+  assert.equal(redactPaths('in ~/work/proj/file'), 'in <path>');
+  assert.equal(redactPaths('state/dist/secrets.sops.yaml at https://biz.test/oauth/authorize on 2026/11/28'), 'state/dist/secrets.sops.yaml at https://biz.test/oauth/authorize on 2026/11/28');
+  assert.ok(!/\/var\/folders/.test(stderrTail({stderr: 'bad path /var/folders/68/abc/T/.tmpAAA\n'})));
+});
+
+test('notices: consecutive identical ones become one row with a count and the latest time; others stay separate', () => {
+  const at = n => new Date(n * 1000).toISOString();
+  const list = [
+    {at: at(1), kind: 'failed', text: TMP_FAIL('aaaaaa')},
+    {at: at(2), kind: 'failed', text: TMP_FAIL('bbbbbb')},
+    {at: at(3), kind: 'failed', text: TMP_FAIL('cccccc')},
+    {at: at(4), kind: 'paused', text: 'Sync paused: reauthorize_required. Nothing was changed.'},
+    {at: at(5), kind: 'failed', text: TMP_FAIL('dddddd')},
+  ];
+  const out = collapseNotices(list);
+  assert.deepEqual(out.map(n => [n.kind, n.count, n.at]), [['failed', 3, at(3)], ['paused', undefined, at(4)], ['failed', undefined, at(5)]]);
+  assert.ok(out.every(n => !n.text.includes('/var/folders')));
+  assert.match(out[0].text, /at path "<tmp>"/);
+  // Applying it again changes nothing, and a stored count is added up.
+  assert.deepEqual(collapseNotices(out), out);
+  assert.equal(collapseNotices([{...out[0]}, {at: at(9), kind: 'failed', text: TMP_FAIL('zzzzzz')}])[0].count, 4);
+  // Numbers in a message do not make it a different one.
+  assert.equal(collapseNotices([{at: at(1), kind: 'applied', text: 'Setup v2 applied; 3 files'}, {at: at(2), kind: 'applied', text: 'Setup v3 applied; 4 files'}]).length, 1);
+});
+
+test('notices: repeated failures of every sync are counted in the state and the status, never repeated', async () => {
+  const h = harness({plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  h.state.current = report({etag: 'e2'});
+  h.exits.commit = Array.from({length: 6}, (_, i) => ({status: 1, stderr: `mise ERROR Operation not permitted at path "/var/folders/68/abc/T/.tmp${i}x${i}x${i}x"`}));
+  for (let i = 0; i < 6; i++) assert.equal((await h.s.sync()).status, 'failed');
+  const failed = readState(h.env).notices.filter(n => n.kind === 'failed');
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].count, 6);
+  assert.ok(!JSON.stringify(readState(h.env).notices).includes('/var/folders'));
+  assert.equal(h.s.status().notices.filter(n => n.kind === 'failed')[0].count, 6);
+  // Old state written before the collapse is shown collapsed and redacted too.
+  const state = readState(h.env);
+  writeState(h.env, {...state, notices: Array.from({length: 9}, (_, i) => ({at: new Date(i * 1000).toISOString(), kind: 'failed', text: TMP_FAIL(`t${i}t${i}t${i}`)}))});
+  const shown = h.s.status().notices;
+  assert.deepEqual([shown.length, shown[0].count], [1, 9]);
+  assert.ok(!shown[0].text.includes('/var/folders'));
+});
+
+test('reauthorize: signing in again clears a pause for it, keeps the new grant and notes it; other pauses stay', async () => {
+  const h = harness({plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  const saved = [];
+  h.store.saveProfile = grant => saved.push(grant);
+  // Not paused: nothing to resume.
+  assert.equal(h.s.reauthorized({accessToken: 'new'}), false);
+  h.state.current = report({reauthorizeRequired: true});
+  assert.equal((await h.s.sync()).reason, 'reauthorize_required');
+  assert.equal(h.s.status().paused.reason, 'reauthorize_required');
+  assert.equal(h.s.reauthorized({accessToken: 'new'}), true);
+  assert.deepEqual(saved, [{accessToken: 'new'}]);
+  assert.equal(h.s.status().paused, null);
+  assert.equal(readState(h.env).notices.at(-1).kind, 'reconnected');
+  // The sync that follows works again with the renewed credential.
+  h.state.current = report({etag: 'e2'});
+  assert.equal((await h.s.sync()).status, 'applied');
+  // A pause for anything else is not cleared by a sign-in.
+  h.state.current = new Error('biz_access_unavailable');
+  assert.equal((await h.s.sync()).reason, 'biz_unreachable');
+  assert.equal(h.s.reauthorized({accessToken: 'newer'}), false);
+  assert.equal(h.s.status().paused.reason, 'biz_unreachable');
+  assert.equal(saved.length, 1);
+});
+
+test('a version published outside the panel (dist:publish) is recorded as this project\'s own when Biz shows it', async () => {
+  const h = harness({reports: report({admin: true}), plan: PLAN()});
+  await h.s.apply({digest: (await h.s.preview()).digest});
+  const biz = report({admin: true, setup: {...SETUP, version: 'v3'}, etag: 'e3'});
+  // A member (no publisher settings) never records it, even when the answers file says v3.
+  fs.writeFileSync(path.join(h.root, '.copier-answers.dist.yml'), '_commit: v3\n_src_path: .data/dist/biz-source\n');
+  assert.equal(h.s.noteReport(biz), false);
+  fs.mkdirSync(path.join(h.root, 'project'), {recursive: true});
+  fs.writeFileSync(path.join(h.root, 'project/distribution.yaml'), 'repo: biz\nsecrets: []\n');
+  // Biz is on another version than the one this project recorded: not ours.
+  assert.equal(h.s.noteReport(report({admin: true, setup: {...SETUP, version: 'v4'}})), false);
+  assert.equal(readState(h.env).selfPublished ?? null, null);
+  assert.equal(h.s.noteReport(biz), true);
+  assert.equal(readState(h.env).selfPublished, 'v3');
+  assert.equal(h.s.noteReport(biz), false);
+  // A sync does it too, and does not replace the files with the version it published itself.
+  const sync = harness({reports: report({admin: true}), plan: PLAN()});
+  await sync.s.apply({digest: (await sync.s.preview()).digest});
+  fs.writeFileSync(path.join(sync.root, '.copier-answers.dist.yml'), '_commit: v3\n');
+  fs.mkdirSync(path.join(sync.root, 'project'), {recursive: true});
+  fs.writeFileSync(path.join(sync.root, 'project/distribution.yaml'), 'repo: biz\n');
+  sync.state.current = report({admin: true, setup: {...SETUP, version: 'v3'}, etag: 'e3'});
+  sync.calls.length = 0;
+  await sync.s.sync();
+  assert.equal(readState(sync.env).selfPublished, 'v3');
+  assert.ok(!sync.calls.some(c => /dist:(add|update)/.test(c)));
 });

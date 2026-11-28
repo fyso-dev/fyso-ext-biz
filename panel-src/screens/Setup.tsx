@@ -9,18 +9,49 @@ type Added = {added:string[]; removed:string[]};
 type Changes = Added & {modified:string[]};
 type PublishPreview = {version:string|null; base?:string|null; changed:boolean; blocked?:boolean; error?:string; files?:Changes; files_count?:number; bots?:Changes; extensions?:Added;
   mcp_servers?:Added; secrets?:string[]; recipients?:{count:number; changed:boolean}; framework?:string|null; checks:Record<string,string>; digest:string};
-type SetupStatus = {connected:boolean; selfPublished?:string|null; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string}[]; admin:boolean; offered:{version:string}|null};
+type SetupStatus = {connected:boolean; selfPublished?:string|null; frozen:boolean; secretsPending?:string[]; noAccess?:boolean; paused:{reason:string}|null; publishPaused?:{files?:string[]}|null; version:string|null; appliedAt:string|null; notices:{at:string; kind:string; text:string; count?:number}[]; bizVersion?:string|null; admin:boolean; offered:{version:string}|null};
 
 const KINDS:ChangeKind[] = ["added", "modified", "removed"];
-const NOTICE_TONE:Record<string, string> = {connected:"ok", applied:"ok", published:"ok", unfrozen:"ok", publish_failed:"down", failed:"down", frozen:"down",
+const NOTICE_TONE:Record<string, string> = {connected:"ok", reconnected:"ok", applied:"ok", published:"ok", unfrozen:"ok", publish_failed:"down", failed:"down", frozen:"down",
   paused:"warn", merge_conflict:"warn", setup_not_installed:"warn"};
 const CHECK_TONE = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ? "pill-ok" : /^(failed|error)$/i.test(value) ? "pill-down" : "pill-unk";
 const CHECK_GLYPH = (value:string) => /^(ok|passed|pass|success)$/i.test(value) ? "✓" : /^(failed|error)$/i.test(value) ? "×" : "·";
+
+const NOTICES_SHOWN = 5;
+// Codes the server writes in notices and errors; the person reads a sentence instead.
+const CODES = ["reauthorize_required", "not_connected", "biz_unreachable", "unexpected_empty_response"];
 
 const post = async (op:string, body?:object) => {
   const response = await fetch(`/api/ext/biz/profile/setup/${op}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body ?? {})});
   return response.json().catch(()=>({error:"setup_failed"}));
 };
+
+/** The connection expired: the same sign-in the Connect screen starts (Biz sign-in, consent, back here). */
+function Reauthorize() {
+  const {t} = useTranslation();
+  return <Notice tone="warn" role="alert">
+    <span>{t("setup.reauthorize")}</span>
+    <form method="post" action="/api/ext/biz/profile/login" target="_top" className="connector-actions">
+      <button type="submit" className="btn btn-sm btn-pri">{t("setup.reauthorizeButton")}</button>
+    </form>
+  </Notice>;
+}
+
+/** One recent notice: a count when it repeated, and long text clamped to two lines until expanded. */
+function NoticeRow({n, text}:{n:SetupStatus["notices"][number]; text:string}) {
+  const {t} = useTranslation();
+  const [open, setOpen] = useState(false);
+  const long = text.length > 140 || text.includes("\n");
+  return <li className={`row biz-event-${NOTICE_TONE[n.kind] ?? "unk"}`}>
+    <span className="biz-event-dot" aria-hidden="true" />
+    <span className="biz-event-text">
+      <span className={long && !open ? "biz-event-clamp" : undefined}>{text}</span>
+      {long && <button type="button" className="btn btn-sm btn-ghost biz-event-more" aria-expanded={open} onClick={()=>setOpen(!open)}>{t(open ? "setup.showLess" : "setup.showMore")}</button>}
+    </span>
+    {(n.count ?? 1) > 1 && <span className="pill pill-surface biz-event-count" title={t("setup.repeated", {count:n.count})}>×{n.count}</span>}
+    <span className="biz-event-time"><RelTime at={n.at} /></span>
+  </li>;
+}
 
 /**
  * The organization's setup published in Biz: connect (with a warning that lists everything that will
@@ -39,6 +70,8 @@ export function Setup({access}:{access:BizAccess|null}) {
   const [choice, setChoice] = useState<Record<string, "ours"|"theirs">>({});
   const [notInstalled, setNotInstalled] = useState(false);
   const [noSession, setNoSession] = useState(false);
+  const [reauth, setReauth] = useState(false);
+  const [allNotices, setAllNotices] = useState(false);
   const load = async () => {
     const response = await fetch("/api/ext/biz/profile/setup/status", {cache:"no-store"}).catch(()=>null);
     // 403: no profile session (never connected, or it expired): offer the Connect action.
@@ -46,9 +79,9 @@ export function Setup({access}:{access:BizAccess|null}) {
     setStatus(response?.ok ? await response.json().catch(()=>undefined) : undefined);
   };
   useEffect(()=>{ void load(); }, []);
-  const fail = (code?:string, detail?:string) => setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")}) + (detail ? ` (${detail})` : "")});
+  const fail = (code?:string, detail?:string) => code === "reauthorize_required" ? setReauth(true) : setMessage({ok:false, text:t(`setup.errors.${code}`, {defaultValue:t("setup.errors.setup_failed")}) + (detail ? ` (${detail})` : "")});
   const run = async (op:string, body?:object, done?:(r:any)=>void) => {
-    setBusy(true); setMessage(undefined); setStale(false); setConflicts([]); setNotInstalled(false);
+    setBusy(true); setMessage(undefined); setReauth(false); setStale(false); setConflicts([]); setNotInstalled(false);
     const result = await post(op, body);
     setBusy(false);
     if (result.error) { fail(result.error, result.detail); setStale(result.error === "stale_base"); setNotInstalled(result.error === "setup_not_installed"); setConflicts(Array.isArray(result.files) ? result.files : []);
@@ -71,10 +104,20 @@ export function Setup({access}:{access:BizAccess|null}) {
   if (!access || noSession) return <ConnectBiz />;
   if (access.reauthorizeRequired) return <ConnectBiz reauthorize />;
   if (!status) return <Loading text={t("setup.loading")} />;
+  // What a notice says: the server writes English with codes; the person reads a sentence in their language.
+  const reason = (code:string) => t(`setup.codes.${code}`, {defaultValue:t("setup.codes.other")});
+  const humanize = (n:SetupStatus["notices"][number]) => {
+    const paused = n.kind === "paused" ? /^Sync paused: (\w+)\./.exec(n.text) : null;
+    if (paused) return t("setup.noticePaused", {reason:reason(paused[1]!)});
+    if (n.kind === "reconnected") return t("setup.noticeReconnected");
+    return CODES.reduce((out, code)=>out.replaceAll(code, t(`setup.codes.${code}`)), n.text);
+  };
+  const version = status.bizVersion ?? status.version;
+  const needsReauth = reauth || status.paused?.reason === "reauthorize_required";
+  const notices = [...status.notices].reverse();
 
   const actions = status.connected ? <>
     {status.admin && !pub && <button type="button" className="btn btn-sm btn-pri" disabled={busy} onClick={()=>void run("publish-preview", undefined, setPub)}>{t("setup.publish")}</button>}
-    <button type="button" className="btn btn-sm btn-soft" disabled={busy} onClick={()=>void run("disconnect")}>{t("setup.disconnect")}</button>
   </> : undefined;
   const sums = KINDS.map(kind=>pub ? [pub.files, pub.bots, pub.extensions, pub.mcp_servers].reduce((sum, c)=>sum + count(c, kind), 0) : 0);
 
@@ -82,11 +125,12 @@ export function Setup({access}:{access:BizAccess|null}) {
     {status.noAccess && <Notice tone="warn">{t("setup.noAccess")}</Notice>}
     {status.frozen && <Notice tone="down">{t("setup.frozen")}</Notice>}
     {(status.secretsPending?.length ?? 0) > 0 && <Notice tone="warn">{t("setup.secretsPending", {names:status.secretsPending!.join(", ")})}</Notice>}
-    {status.paused && <Notice tone="warn">{t("setup.paused", {reason:status.paused.reason})}</Notice>}
+    {needsReauth && <Reauthorize />}
+    {status.paused && status.paused.reason !== "reauthorize_required" && <Notice tone="warn">{t("setup.paused", {reason:reason(status.paused.reason)})}</Notice>}
     {status.publishPaused && <Notice tone="warn">{t("setup.publishPaused", {files:(status.publishPaused.files ?? []).join(", ")})}</Notice>}
     {message && <Notice tone={message.ok ? "ok" : "down"}>{message.text}</Notice>}
     {status.connected
-      ? <Notice tone="ok">{status.admin && status.selfPublished && status.selfPublished === status.version ? t("setup.connectedPublisher", {version:status.version}) : t("setup.connected", {version:status.version ?? "-"})}</Notice>
+      ? <Notice tone="ok">{status.admin && status.selfPublished && status.selfPublished === version ? t("setup.connectedPublisher", {version}) : t("setup.connected", {version:version ?? "-"})}</Notice>
       : !status.noAccess && !preview && <>
         <Notice tone="info">{status.offered ? t("setup.offered", {version:status.offered.version}) : t("setup.noneOffered")}</Notice>
         <div className="connector-actions"><button type="button" className="btn btn-pri" disabled={busy} onClick={()=>void run("preview", undefined, setPreview)}>{t("setup.connect")}</button></div>
@@ -140,13 +184,10 @@ export function Setup({access}:{access:BizAccess|null}) {
         <label><input type="radio" name={f} checked={choice[f] === "theirs"} onChange={()=>setChoice({...choice, [f]:"theirs"})} /> {t("setup.takePublished")}</label></div>)}
       <div className="connector-actions"><button type="button" className="btn btn-sm btn-pri" disabled={busy || conflicts.some(f=>!choice[f])}
         onClick={()=>void run("merge", {ours:conflicts.filter(f=>choice[f] === "ours"), theirs:conflicts.filter(f=>choice[f] === "theirs")}, ()=>setMessage({ok:true, text:t("setup.published")}))}>{t("setup.resolveMerge")}</button></div></fieldset>}
-    {status.notices.length > 0 && <div className="biz-subsection">
+    {notices.length > 0 && <div className="biz-subsection">
       <h3>{t("setup.notices")}</h3>
-      <ul className="card list biz-events">{[...status.notices].reverse().slice(0, 5).map(n=><li key={n.at+n.kind} className={`row biz-event-${NOTICE_TONE[n.kind] ?? "unk"}`}>
-        <span className="biz-event-dot" aria-hidden="true" />
-        <span className="biz-event-text">{n.text}</span>
-        <span className="biz-event-time"><RelTime at={n.at} /></span>
-      </li>)}</ul>
+      <ul className="card list biz-events">{(allNotices ? notices : notices.slice(0, NOTICES_SHOWN)).map(n=><NoticeRow key={n.at+n.kind} n={n} text={humanize(n)} />)}</ul>
+      {notices.length > NOTICES_SHOWN && <div className="connector-actions"><button type="button" className="btn btn-sm btn-ghost" aria-expanded={allNotices} onClick={()=>setAllNotices(!allNotices)}>{allNotices ? t("setup.showFewer") : t("setup.showAll", {count:notices.length})}</button></div>}
     </div>}
   </Section>;
 }

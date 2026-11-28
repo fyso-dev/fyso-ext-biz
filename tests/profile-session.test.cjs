@@ -295,3 +295,50 @@ test('forUser finds the latest live session of a web user, for hosts that never 
   now = 2000 + 61_000;
   assert.equal(profiles.forUser('ana'), null);
 });
+
+test('signing in again after a paused sync clears the pause and starts a sync; a normal sign-in does neither', async () => {
+  for (const resumed of [true, false]) {
+    const calls = [];
+    const managedSetup = {status: () => ({connected: true}), reauthorized: grant => { calls.push(['reauthorized', grant.accessToken]); return resumed; },
+      sync: async () => { calls.push(['sync']); return {status: 'noop'}; }};
+    const auth = {async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
+      async finishProfile() { return {accessToken: 'renewed', expiresAt: Date.now() + 3600000}; }};
+    const p = profileSessions({env, auth, managedSetup, access: {async identity() { return {subject: 'x'}; }}});
+    const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
+    const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: login.headers['Set-Cookie'].split(';')[0]}));
+    assert.equal(cb.status, 303);
+    assert.deepEqual(calls, [['reauthorized', 'renewed']], 'the pause is cleared before the redirect; the sync waits for the response');
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, resumed ? [['reauthorized', 'renewed'], ['sync']] : [['reauthorized', 'renewed']]);
+  }
+});
+
+test('the setup status carries the version Biz shows, and records a self-published one', async () => {
+  const seen = [];
+  const managedSetup = {status: () => ({connected: true, version: 'v2', selfPublished: null, paused: null, notices: []}), noteReport: report => seen.push(report.setup.version)};
+  const authLogin = {saveProfile() {}, async beginProfile() { return {state: 's', url: 'https://biz.test/oauth/authorize?state=s'}; },
+    async finishProfile() { return {accessToken: 't', expiresAt: Date.now() + 3600000}; }};
+  const access = {async identity() { return {subject: 'x'}; }, async report() { return {capabilities: [], admin: true, departments: [], policy: null, reauthorizeRequired: false, setup: {version: 'v3'}}; }};
+  const p = profileSessions({env, auth: authLogin, managedSetup, access});
+  const login = await invoke(p, request('/profile/login', 'ana', {method: 'POST'}));
+  const cb = await invoke(p, request('/profile/callback?state=s&code=c', 'ana', {cookie: login.headers['Set-Cookie'].split(';')[0]}));
+  const out = await invoke(p, request('/profile/setup/status', 'ana', {cookie: cb.headers['Set-Cookie'][1].split(';')[0]}));
+  assert.equal(JSON.parse(out.body).bizVersion, 'v3');
+  assert.deepEqual(seen, ['v3']);
+});
+
+test('the Setup panel offers a sign-in when paused for reauthorization, keeps one Disconnect, and has the strings in both languages', () => {
+  const fs = require('node:fs');
+  const read = file => fs.readFileSync(`${__dirname}/../${file}`, 'utf8');
+  const screen = read('panel-src/screens/Setup.tsx');
+  assert.match(screen, /action="\/api\/ext\/biz\/profile\/login"/);
+  assert.match(screen, /reason === "reauthorize_required"/);
+  assert.doesNotMatch(screen, /run\("disconnect"/, 'Disconnect lives in the page header only');
+  assert.match(screen, /NOTICES_SHOWN/);
+  const [en, es] = ['en', 'es'].map(l => JSON.parse(read(`panel-src/locales/${l}.json`)).setup);
+  for (const key of ['reauthorize', 'reauthorizeButton', 'showAll', 'showMore', 'noticePaused']) assert.ok(en[key] && es[key], key);
+  assert.deepEqual(Object.keys(en.codes).sort(), Object.keys(es.codes).sort());
+  assert.equal(es.reauthorize, 'Tu conexión con Fyso Biz venció. Volvé a autorizar para seguir sincronizando.');
+  for (const text of [en.errors.reauthorize_required, es.errors.reauthorize_required, ...Object.values(en.codes), ...Object.values(es.codes)]) assert.doesNotMatch(text, /reauthorize_required/);
+});

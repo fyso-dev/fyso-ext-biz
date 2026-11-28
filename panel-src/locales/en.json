@@ -327,12 +327,11 @@
     "applied": "Setup applied.",
     "publish": "Publish this project's setup",
     "published": "Setup published.",
-    "disconnect": "Disconnect",
     "notices": "Recent notices",
     "errors": {
       "setup_failed": "The setup could not be completed. Nothing was removed.",
       "not_connected": "Connect Fyso Biz first.",
-      "reauthorize_required": "Reconnect Fyso Biz.",
+      "reauthorize_required": "Your Fyso Biz connection expired. Authorize again.",
       "frozen": "Your access was revoked.",
       "no_access": "You do not have access to the setup yet.",
       "access_required": "You do not have access to this project in Fyso Biz.",
@@ -379,6 +378,22 @@
       "confirm": "Confirm publication",
       "cancel": "Cancel",
       "close": "Close"
-    }
+    },
+    "reauthorize": "Your Fyso Biz connection expired. Authorize again to keep syncing.",
+    "reauthorizeButton": "Authorize again",
+    "showMore": "Show more",
+    "showLess": "Show less",
+    "showAll": "Show all ({{count}})",
+    "showFewer": "Show fewer notices",
+    "repeated": "Repeated {{count}} times",
+    "codes": {
+      "reauthorize_required": "your Fyso Biz connection expired",
+      "not_connected": "Fyso Biz is not connected",
+      "biz_unreachable": "Fyso Biz could not be reached",
+      "unexpected_empty_response": "Fyso Biz sent an unexpected answer",
+      "other": "unknown reason"
+    },
+    "noticePaused": "Sync paused: {{reason}}. Nothing was changed.",
+    "noticeReconnected": "Fyso Biz connection renewed; syncing again."
   }
 }
